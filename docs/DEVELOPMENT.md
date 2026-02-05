@@ -41,7 +41,7 @@ cd thanks-to-cerebras
 deno task dev
 ```
 
-访问 `http://localhost:8000` 进入管理面板。
+默认访问 `http://localhost:8000` 进入管理面板（或你设置的 `PORT`）。
 
 ## deno task 命令
 
@@ -159,7 +159,18 @@ KV_PATH=/custom/path deno task dev
 
 **端口被占用**
 
-默认监听 8000 端口，如需更改可修改 `main.ts` 中的端口配置。
+默认监听 8000 端口，可通过环境变量 `PORT` 更改：
+
+```bash
+# macOS / Linux
+PORT=8339 deno task start
+```
+
+```powershell
+# Windows PowerShell
+$env:PORT="8339"
+deno task start
+```
 
 **KV 数据想重置**
 

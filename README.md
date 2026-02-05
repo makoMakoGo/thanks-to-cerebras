@@ -129,6 +129,8 @@ sequenceDiagram
 deno run --allow-net --allow-env --allow-read --allow-write main.ts
 ```
 
+默认监听 8000 端口，可通过环境变量 `PORT` 更改（例：`PORT=8339`）。
+
 本地 KV 数据默认存储在 `src/.deno-kv-local/kv.sqlite3`，可通过环境变量
 `KV_PATH` 指定目录（例：`KV_PATH=./data`）。
 

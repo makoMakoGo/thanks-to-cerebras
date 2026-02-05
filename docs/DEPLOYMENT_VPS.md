@@ -28,6 +28,12 @@ cd thanks-to-cerebras
 deno task start
 ```
 
+默认监听 8000 端口，可通过 `PORT` 更改：
+
+```bash
+PORT=8339 deno task start
+```
+
 ## KV 数据存储
 
 默认存储在项目目录下：
@@ -70,6 +76,7 @@ User=cerebras-proxy
 Group=cerebras-proxy
 WorkingDirectory=/opt/cerebras-proxy/app
 Environment=KV_PATH=/var/lib/cerebras-proxy
+Environment=PORT=8339
 ExecStart=/usr/local/bin/deno task start
 Restart=always
 RestartSec=5

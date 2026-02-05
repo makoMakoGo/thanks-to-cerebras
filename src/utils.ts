@@ -79,3 +79,17 @@ export function normalizeKvFlushIntervalMs(ms: number): number {
   if (!Number.isFinite(ms)) return DEFAULT_KV_FLUSH_INTERVAL_MS;
   return Math.max(MIN_KV_FLUSH_INTERVAL_MS, Math.trunc(ms));
 }
+
+export function resolvePort(
+  raw: string | undefined,
+  fallbackPort: number,
+): number {
+  if (!raw) return fallbackPort;
+  const trimmed = raw.trim();
+  if (!trimmed) return fallbackPort;
+  if (!/^\d+$/.test(trimmed)) return fallbackPort;
+  const port = Number(trimmed);
+  if (!Number.isSafeInteger(port)) return fallbackPort;
+  if (port < 1 || port > 65535) return fallbackPort;
+  return port;
+}

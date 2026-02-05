@@ -2,9 +2,10 @@
 
 import { CORS_HEADERS } from "./src/constants.ts";
 import { problemResponse } from "./src/http.ts";
-import { cachedConfig } from "./src/state.ts";
+import { cachedConfig, isDenoDeployment } from "./src/state.ts";
 import { isAdminAuthorized } from "./src/auth.ts";
 import { applyKvFlushInterval, bootstrapCache } from "./src/kv.ts";
+import { resolvePort } from "./src/utils.ts";
 
 // Handlers
 import { handleAuthRoutes } from "./src/handlers/auth.ts";
@@ -89,5 +90,10 @@ console.log(`- 存储: Deno KV`);
 if (import.meta.main) {
   await bootstrapCache();
   applyKvFlushInterval(cachedConfig);
-  Deno.serve(handler);
+  if (isDenoDeployment) {
+    Deno.serve(handler);
+  } else {
+    const port = resolvePort(Deno.env.get("PORT"), 8000);
+    Deno.serve({ port }, handler);
+  }
 }

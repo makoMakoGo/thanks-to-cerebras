@@ -11,7 +11,24 @@ cd thanks-to-cerebras
 docker compose up -d
 ```
 
-访问 `http://localhost:8000` 进入管理面板。
+默认访问 `http://localhost:8000` 进入管理面板。
+
+## 端口配置
+
+Docker 端口映射格式为：
+
+```
+<宿主机端口>:<容器端口>
+```
+
+本项目容器内默认监听 8000（可通过 `PORT` 调整，但通常不需要）。最常见的做法是只改“宿主机端口”，例如：
+
+```yaml
+ports:
+  - "8339:8000"
+```
+
+此时访问 `http://localhost:8339`。
 
 ## 数据持久化
 
