@@ -11,7 +11,7 @@ cd thanks-to-cerebras
 docker compose up -d
 ```
 
-默认访问 `http://localhost:8000` 进入管理面板。
+默认访问 `http://localhost:8339` 进入管理面板。
 
 ## 端口配置
 
