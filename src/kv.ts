@@ -146,6 +146,60 @@ export async function bootstrapCache(): Promise<void> {
   setCachedProxyKeys(new Map(proxyKeys.map((k) => [k.id, k])));
 }
 
+function throwIncompatibleConfig(detail: string): never {
+  throw new Error(
+    `[KV] 配置结构不兼容：${detail}。请清空 KV 后重启（Deno CLI/Docker 删除 kv.sqlite3，Deno Deploy 清空项目 KV 数据）。`,
+  );
+}
+
+export function validateProxyConfig(rawValue: unknown): ProxyConfig {
+  if (!rawValue || typeof rawValue !== "object") {
+    throwIncompatibleConfig("config 不是对象");
+  }
+
+  const raw = rawValue as Record<string, unknown>;
+
+  if ("schemaVersion" in raw || "disabledModels" in raw) {
+    throwIncompatibleConfig("检测到旧字段 schemaVersion/disabledModels");
+  }
+
+  if (!Array.isArray(raw.modelPool)) {
+    throwIncompatibleConfig("缺少 modelPool 或类型错误");
+  }
+
+  if (
+    typeof raw.currentModelIndex !== "number" ||
+    !Number.isFinite(raw.currentModelIndex) ||
+    !Number.isInteger(raw.currentModelIndex) ||
+    raw.currentModelIndex < 0
+  ) {
+    throwIncompatibleConfig("缺少 currentModelIndex 或类型错误");
+  }
+
+  if (
+    typeof raw.totalRequests !== "number" ||
+    !Number.isFinite(raw.totalRequests) ||
+    !Number.isInteger(raw.totalRequests) ||
+    raw.totalRequests < 0
+  ) {
+    throwIncompatibleConfig("缺少 totalRequests 或类型错误");
+  }
+
+  if (
+    typeof raw.kvFlushIntervalMs !== "number" ||
+    !Number.isFinite(raw.kvFlushIntervalMs)
+  ) {
+    throwIncompatibleConfig("缺少 kvFlushIntervalMs 或类型错误");
+  }
+
+  return {
+    modelPool: normalizeModelPool(raw.modelPool),
+    currentModelIndex: raw.currentModelIndex,
+    totalRequests: raw.totalRequests,
+    kvFlushIntervalMs: raw.kvFlushIntervalMs,
+  };
+}
+
 // Config operations
 export async function kvEnsureConfigEntry(): Promise<
   Deno.KvEntry<ProxyConfig>
@@ -158,7 +212,6 @@ export async function kvEnsureConfigEntry(): Promise<
       currentModelIndex: 0,
       totalRequests: 0,
       kvFlushIntervalMs: DEFAULT_KV_FLUSH_INTERVAL_MS,
-      schemaVersion: "5.0",
     };
     await kv.set(CONFIG_KEY, defaultConfig);
     entry = await kv.get<ProxyConfig>(CONFIG_KEY);
@@ -167,49 +220,8 @@ export async function kvEnsureConfigEntry(): Promise<
   if (!entry.value) {
     throw new Error("KV 配置初始化失败");
   }
-
-  const raw = entry.value as unknown as Record<string, unknown>;
-
-  const modelPool = Array.isArray(raw.modelPool)
-    ? normalizeModelPool(raw.modelPool)
-    : [...DEFAULT_MODEL_POOL];
-
-  const currentModelIndex = typeof raw.currentModelIndex === "number" &&
-      Number.isFinite(raw.currentModelIndex) &&
-      raw.currentModelIndex >= 0
-    ? Math.trunc(raw.currentModelIndex)
-    : 0;
-
-  const totalRequests = typeof raw.totalRequests === "number" &&
-      Number.isFinite(raw.totalRequests) &&
-      raw.totalRequests >= 0
-    ? Math.trunc(raw.totalRequests)
-    : 0;
-
-  const kvFlushIntervalMs = typeof raw.kvFlushIntervalMs === "number" &&
-      Number.isFinite(raw.kvFlushIntervalMs)
-    ? raw.kvFlushIntervalMs
-    : DEFAULT_KV_FLUSH_INTERVAL_MS;
-
-  const needsMigration = raw.schemaVersion !== "5.0" || "disabledModels" in raw;
-
-  if (needsMigration) {
-    const nextConfig: ProxyConfig = {
-      modelPool,
-      currentModelIndex,
-      totalRequests,
-      kvFlushIntervalMs,
-      schemaVersion: "5.0",
-    };
-    await kv.set(CONFIG_KEY, nextConfig);
-    entry = await kv.get<ProxyConfig>(CONFIG_KEY);
-  }
-
-  if (!entry.value) {
-    throw new Error("KV 配置初始化失败");
-  }
-
-  return entry as Deno.KvEntry<ProxyConfig>;
+  const config = validateProxyConfig(entry.value);
+  return { ...entry, value: config } as Deno.KvEntry<ProxyConfig>;
 }
 
 export async function kvGetConfig(): Promise<ProxyConfig> {
@@ -227,14 +239,15 @@ export async function kvUpdateConfig(
       setCachedConfig(entry.value);
       return entry.value;
     }
+    const validatedConfig = validateProxyConfig(nextConfig);
     const result = await kv
       .atomic()
       .check(entry)
-      .set(CONFIG_KEY, nextConfig)
+      .set(CONFIG_KEY, validatedConfig)
       .commit();
     if (result.ok) {
-      setCachedConfig(nextConfig);
-      return nextConfig;
+      setCachedConfig(validatedConfig);
+      return validatedConfig;
     }
   }
   throw new Error("配置更新失败：达到最大重试次数");
@@ -343,7 +356,6 @@ export async function removeModelFromPool(
       ...config,
       modelPool: nextPool,
       currentModelIndex: 0,
-      schemaVersion: "5.0",
     };
   });
 

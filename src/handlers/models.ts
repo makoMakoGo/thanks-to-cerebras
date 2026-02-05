@@ -143,7 +143,6 @@ export async function handleModelRoutes(
         ...config,
         modelPool: models,
         currentModelIndex: 0,
-        schemaVersion: "5.0",
       }));
       rebuildModelPoolCache();
 

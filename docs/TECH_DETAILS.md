@@ -48,8 +48,7 @@ function isProxyAuthorized(req: Request) {
   modelPool: string[],
   currentModelIndex: number,
   totalRequests: number,
-  kvFlushIntervalMs: number,
-  schemaVersion: '5.0'
+  kvFlushIntervalMs: number
 }
 
 // 管理员密码
@@ -65,6 +64,8 @@ function isProxyAuthorized(req: Request) {
   id, key, name, useCount, lastUsed, createdAt
 }
 ```
+
+升级到当前版本后，如果 KV 中仍是旧配置结构（如包含 `schemaVersion` / `disabledModels` 或缺少必填字段），服务会在启动时直接报错；需要先清空 KV（本地/Docker 删除 `kv.sqlite3`，Deno Deploy 清空项目 KV 数据）再重启。
 
 ## 性能优化
 

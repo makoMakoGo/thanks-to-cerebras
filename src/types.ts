@@ -20,8 +20,7 @@ export interface ProxyConfig {
   modelPool: string[];
   currentModelIndex: number;
   totalRequests: number;
-  kvFlushIntervalMs?: number;
-  schemaVersion: string;
+  kvFlushIntervalMs: number;
 }
 
 export interface ModelCatalog {

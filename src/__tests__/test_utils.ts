@@ -45,7 +45,6 @@ export function createMockConfig(
     currentModelIndex: 0,
     totalRequests: 0,
     kvFlushIntervalMs: 15000,
-    schemaVersion: "5.0",
     ...overrides,
   };
 }

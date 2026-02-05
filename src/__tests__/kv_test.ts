@@ -5,8 +5,8 @@
  * These tests focus on pure utility functions.
  */
 
-import { assertEquals } from "@std/assert";
-import { resolveKvFlushIntervalMs } from "../kv.ts";
+import { assertEquals, assertThrows } from "@std/assert";
+import { resolveKvFlushIntervalMs, validateProxyConfig } from "../kv.ts";
 import {
   DEFAULT_KV_FLUSH_INTERVAL_MS,
   MIN_KV_FLUSH_INTERVAL_MS,
@@ -59,4 +59,37 @@ Deno.test("normalizeKvFlushIntervalMs - truncates decimal values", () => {
 
 Deno.test("normalizeKvFlushIntervalMs - clamps negative values to minimum", () => {
   assertEquals(normalizeKvFlushIntervalMs(-5000), MIN_KV_FLUSH_INTERVAL_MS);
+});
+
+Deno.test("validateProxyConfig - accepts current structure", () => {
+  const config = createMockConfig();
+  const result = validateProxyConfig(config);
+  assertEquals(result, config);
+});
+
+Deno.test("validateProxyConfig - fails fast on schemaVersion", () => {
+  const legacy = { ...createMockConfig(), schemaVersion: "5.0" };
+  assertThrows(
+    () => validateProxyConfig(legacy),
+    Error,
+    "请清空 KV 后重启",
+  );
+});
+
+Deno.test("validateProxyConfig - fails fast on disabledModels", () => {
+  const legacy = { ...createMockConfig(), disabledModels: ["model-x"] };
+  assertThrows(
+    () => validateProxyConfig(legacy),
+    Error,
+    "请清空 KV 后重启",
+  );
+});
+
+Deno.test("validateProxyConfig - fails fast when required field missing", () => {
+  const { totalRequests: _removed, ...broken } = createMockConfig();
+  assertThrows(
+    () => validateProxyConfig(broken),
+    Error,
+    "请清空 KV 后重启",
+  );
 });
