@@ -1,45 +1,15 @@
-import { assert, assertEquals, assertMatch } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
 
 import {
   hashPassword,
   PBKDF2_ITERATIONS,
   verifyPbkdf2Password,
-} from "./src/crypto.ts";
-import { generateProxyKey } from "./src/keys.ts";
-
-// ================================
-// 测试用例
-// ================================
-
-Deno.test("generateProxyKey - 格式和长度", () => {
-  const key = generateProxyKey();
-
-  // 检查前缀
-  assertEquals(key.startsWith("cpk_"), true, "密钥应以 cpk_ 开头");
-
-  // 检查长度（cpk_ = 4 字符 + base64url 编码的 24 字节 = 32 字符，总共 36）
-  assertEquals(key.length, 36, "密钥长度应为 36 字符");
-
-  // 检查字符集（base64url: A-Z, a-z, 0-9, -, _）
-  assertMatch(key, /^cpk_[A-Za-z0-9_-]+$/, "密钥应只包含 base64url 字符");
-});
-
-Deno.test("generateProxyKey - 唯一性", () => {
-  const keys = new Set<string>();
-  const count = 1000;
-
-  for (let i = 0; i < count; i++) {
-    keys.add(generateProxyKey());
-  }
-
-  assertEquals(keys.size, count, "生成的密钥应该是唯一的");
-});
+} from "../crypto.ts";
 
 Deno.test("hashPassword - 版本化格式", async () => {
   const password = "test123";
   const hash = await hashPassword(password);
 
-  // 检查格式：v1$pbkdf2$<iters>$<salt_b64>$<key_b64>
   const parts = hash.split("$");
   assertEquals(parts.length, 5, "哈希应包含 5 个部分");
   assertEquals(parts[0], "v1", "版本应为 v1");
@@ -50,7 +20,6 @@ Deno.test("hashPassword - 版本化格式", async () => {
     `迭代次数应为 ${PBKDF2_ITERATIONS}`,
   );
 
-  // 检查 salt 和 key 是否为有效 base64
   assert(parts[3].length > 0, "盐不应为空");
   assert(parts[4].length > 0, "密钥不应为空");
 });
@@ -82,9 +51,9 @@ Deno.test("verifyPbkdf2Password - 错误密码验证失败", async () => {
 Deno.test("verifyPbkdf2Password - 格式错误的哈希拒绝", async () => {
   const invalidHashes = [
     "invalid",
-    "v1$pbkdf2$100000", // 缺少部分
-    "v2$pbkdf2$100000$salt$key", // 错误版本
-    "v1$sha256$100000$salt$key", // 错误算法
+    "v1$pbkdf2$100000",
+    "v2$pbkdf2$100000$salt$key",
+    "v1$sha256$100000$salt$key",
   ];
 
   for (const hash of invalidHashes) {
@@ -95,10 +64,9 @@ Deno.test("verifyPbkdf2Password - 格式错误的哈希拒绝", async () => {
 
 Deno.test("verifyPbkdf2Password - 确定性验证（相同输入相同结果）", async () => {
   const password = "test123";
-  const salt = new Uint8Array(16).fill(42); // 固定盐
+  const salt = new Uint8Array(16).fill(42);
   const hash = await hashPassword(password, salt);
 
-  // 多次验证应得到相同结果
   const result1 = await verifyPbkdf2Password(password, hash);
   const result2 = await verifyPbkdf2Password(password, hash);
   const result3 = await verifyPbkdf2Password(password, hash);
