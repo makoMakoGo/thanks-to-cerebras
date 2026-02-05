@@ -2,6 +2,14 @@
 
 > 📖 相关文档：[README](../README.md) | [API 文档](API.md) | [技术细节](TECH_DETAILS.md)
 
+## 部署方式选择
+
+| 方式 | 适用场景 | 文档 |
+|------|----------|------|
+| Deno Deploy | 推荐，零运维 | 本文档 |
+| VPS + systemd | 自有服务器 | [VPS 部署](DEPLOYMENT_VPS.md) |
+| Docker | 容器化环境 | [Docker 部署](DEPLOYMENT_DOCKER.md) |
+
 ## 核心要点（先看这个）
 
 - 唯一支持的部署方式：**从 Git 仓库部署到新 Deno Deploy**（`https://console.deno.com/`）

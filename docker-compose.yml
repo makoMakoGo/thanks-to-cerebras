@@ -1,0 +1,11 @@
+services:
+  cerebras-proxy:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - cerebras-kv:/app/data
+    restart: unless-stopped
+
+volumes:
+  cerebras-kv:

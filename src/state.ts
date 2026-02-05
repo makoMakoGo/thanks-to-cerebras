@@ -29,7 +29,7 @@ function assertKvSupported(): void {
 export const kv = await (() => {
   assertKvSupported();
   if (isDenoDeployment) return Deno.openKv();
-  const kvDir = `${import.meta.dirname}/.deno-kv-local`;
+  const kvDir = Deno.env.get("KV_PATH") || `${import.meta.dirname}/.deno-kv-local`;
   try {
     Deno.mkdirSync(kvDir, { recursive: true });
   } catch (e) {

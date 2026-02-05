@@ -85,6 +85,17 @@
 
 📖 详细部署与运维说明：[部署指南](docs/GUIDE.md) | [API 文档](docs/API.md) | [技术细节](docs/TECH_DETAILS.md)
 
+## Documentation
+
+| 文档 | 说明 |
+|------|------|
+| [部署指南](docs/GUIDE.md) | Deno Deploy 部署 |
+| [VPS 部署](docs/DEPLOYMENT_VPS.md) | VPS + systemd |
+| [Docker 部署](docs/DEPLOYMENT_DOCKER.md) | 容器化部署 |
+| [本地开发](docs/DEVELOPMENT.md) | 开发环境配置 |
+| [API 文档](docs/API.md) | 接口说明 |
+| [技术细节](docs/TECH_DETAILS.md) | 架构实现 |
+
 ## Short Glance at Implementation
 
 一句话：把沉浸式翻译（OpenAI
