@@ -83,18 +83,18 @@
   <img src="image/配置说明2.png" alt="沉浸式翻译配置" width="70%">
 </div>
 
-📖 详细部署与运维说明：[部署指南](docs/GUIDE.md) | [API 文档](docs/API.md) | [技术细节](docs/TECH_DETAILS.md)
+📖 其他可选部署方式：[部署指南](docs/GUIDE.md) | [docker 部署](docs/DEPLOYMENT_DOCKER.md) | [deno cli 部署](docs/DEPLOYMENT_VPS.md)
 
 ## Documentation
 
-| 文档 | 说明 |
-|------|------|
-| [部署指南](docs/GUIDE.md) | Deno Deploy 部署 |
-| [VPS 部署](docs/DEPLOYMENT_VPS.md) | VPS + systemd |
-| [Docker 部署](docs/DEPLOYMENT_DOCKER.md) | 容器化部署 |
-| [本地开发](docs/DEVELOPMENT.md) | 开发环境配置 |
-| [API 文档](docs/API.md) | 接口说明 |
-| [技术细节](docs/TECH_DETAILS.md) | 架构实现 |
+| 文档                                     | 说明             |
+| ---------------------------------------- | ---------------- |
+| [部署指南](docs/GUIDE.md)                | Deno Deploy 部署 |
+| [VPS 部署](docs/DEPLOYMENT_VPS.md)       | VPS + systemd    |
+| [Docker 部署](docs/DEPLOYMENT_DOCKER.md) | 容器化部署       |
+| [本地开发](docs/DEVELOPMENT.md)          | 开发环境配置     |
+| [API 文档](docs/API.md)                  | 接口说明         |
+| [技术细节](docs/TECH_DETAILS.md)         | 架构实现         |
 
 ## Short Glance at Implementation
 
@@ -129,7 +129,7 @@ sequenceDiagram
 deno run --allow-net --allow-env --allow-read --allow-write main.ts
 ```
 
-默认监听 8000 端口，可通过环境变量 `PORT` 更改（例：`PORT=8339`）。
+默认监听 8339 端口，可通过环境变量 `PORT` 更改（例：`PORT=9001`）。
 
 本地 KV 数据默认存储在 `src/.deno-kv-local/kv.sqlite3`，可通过环境变量
 `KV_PATH` 指定目录（例：`KV_PATH=./data`）。

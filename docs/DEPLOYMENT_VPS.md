@@ -28,10 +28,10 @@ cd thanks-to-cerebras
 deno task start
 ```
 
-默认监听 8000 端口，可通过 `PORT` 更改：
+默认监听 8339 端口，可通过 `PORT` 更改：
 
 ```bash
-PORT=8339 deno task start
+PORT=9001 deno task start
 ```
 
 ## KV 数据存储

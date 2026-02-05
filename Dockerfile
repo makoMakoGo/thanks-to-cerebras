@@ -12,6 +12,6 @@ ENV KV_PATH=/app/data
 
 RUN deno cache main.ts
 
-EXPOSE 8000
+EXPOSE 8339
 
 CMD ["run", "--allow-net", "--allow-env", "--allow-read", "--allow-write", "main.ts"]

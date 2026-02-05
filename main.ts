@@ -93,7 +93,7 @@ if (import.meta.main) {
   if (isDenoDeployment) {
     Deno.serve(handler);
   } else {
-    const port = resolvePort(Deno.env.get("PORT"), 8000);
+    const port = resolvePort(Deno.env.get("PORT"), 8339);
     Deno.serve({ port }, handler);
   }
 }

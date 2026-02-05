@@ -41,7 +41,7 @@ cd thanks-to-cerebras
 deno task dev
 ```
 
-默认访问 `http://localhost:8000` 进入管理面板（或你设置的 `PORT`）。
+默认访问 `http://localhost:8339` 进入管理面板（或你设置的 `PORT`）。
 
 ## deno task 命令
 
@@ -49,7 +49,7 @@ deno task dev
 |------|------|
 | `deno task dev` | 启动开发服务器 |
 | `deno task start` | 启动生产服务器 |
-| `deno task test` | 运行全部测试（含 `deno_test.ts` + `src/__tests__/`） |
+| `deno task test` | 运行全部测试（仓库内全部 `*_test.ts`） |
 | `deno task test:unit` | 运行单元测试 |
 | `deno task test:coverage` | 运行测试并生成覆盖率报告 |
 | `deno task check` | 类型检查 |
@@ -159,16 +159,16 @@ KV_PATH=/custom/path deno task dev
 
 **端口被占用**
 
-默认监听 8000 端口，可通过环境变量 `PORT` 更改：
+默认监听 8339 端口，可通过环境变量 `PORT` 更改：
 
 ```bash
 # macOS / Linux
-PORT=8339 deno task start
+PORT=9001 deno task start
 ```
 
 ```powershell
 # Windows PowerShell
-$env:PORT="8339"
+$env:PORT="9001"
 deno task start
 ```
 
