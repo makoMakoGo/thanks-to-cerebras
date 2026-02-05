@@ -187,7 +187,9 @@ export function validateProxyConfig(rawValue: unknown): ProxyConfig {
 
   if (
     typeof raw.kvFlushIntervalMs !== "number" ||
-    !Number.isFinite(raw.kvFlushIntervalMs)
+    !Number.isFinite(raw.kvFlushIntervalMs) ||
+    !Number.isInteger(raw.kvFlushIntervalMs) ||
+    raw.kvFlushIntervalMs < 0
   ) {
     throwIncompatibleConfig("缺少 kvFlushIntervalMs 或类型错误");
   }

@@ -93,3 +93,18 @@ Deno.test("validateProxyConfig - fails fast when required field missing", () => 
     "请清空 KV 后重启",
   );
 });
+
+Deno.test("validateProxyConfig - fails fast on invalid kvFlushIntervalMs", () => {
+  assertThrows(
+    () => validateProxyConfig({ ...createMockConfig(), kvFlushIntervalMs: -1 }),
+    Error,
+    "请清空 KV 后重启",
+  );
+
+  assertThrows(
+    () =>
+      validateProxyConfig({ ...createMockConfig(), kvFlushIntervalMs: 15000.5 }),
+    Error,
+    "请清空 KV 后重启",
+  );
+});
