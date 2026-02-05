@@ -6,8 +6,6 @@
 
 - Linux 服务器（Ubuntu/Debian/CentOS）
 - Deno 2.x
-- （可选）Nginx / Caddy 反向代理
-- （可选）域名 + SSL 证书
 
 ## 安装 Deno
 

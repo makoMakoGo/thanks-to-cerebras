@@ -35,13 +35,15 @@ Deno.test("normalizeModelPool - removes duplicates", () => {
 });
 
 Deno.test("normalizeModelPool - handles non-string values", () => {
-  const result = normalizeModelPool([
-    "model-a",
-    123,
-    null,
-    undefined,
-    "model-b",
-  ] as unknown as readonly unknown[]);
+  const result = normalizeModelPool(
+    [
+      "model-a",
+      123,
+      null,
+      undefined,
+      "model-b",
+    ] as unknown as readonly unknown[],
+  );
   assertEquals(result, ["model-a", "model-b"]);
 });
 
