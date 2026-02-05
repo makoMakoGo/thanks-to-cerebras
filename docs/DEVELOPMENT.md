@@ -33,7 +33,8 @@ deno --version
 
 ```bash
 # 克隆仓库
-git clone https://github.com/your-username/thanks-to-cerebras.git
+git clone https://github.com/zhu-jl18/thanks-to-cerebras.git
+# 或 clone 你的 fork：https://github.com/<your-username>/thanks-to-cerebras.git
 cd thanks-to-cerebras
 
 # 启动开发服务器
@@ -48,7 +49,7 @@ deno task dev
 |------|------|
 | `deno task dev` | 启动开发服务器 |
 | `deno task start` | 启动生产服务器 |
-| `deno task test` | 运行集成测试 |
+| `deno task test` | 运行全部测试（含 `deno_test.ts` + `src/__tests__/`） |
 | `deno task test:unit` | 运行单元测试 |
 | `deno task test:coverage` | 运行测试并生成覆盖率报告 |
 | `deno task check` | 类型检查 |
@@ -63,7 +64,8 @@ deno task dev
 src/.deno-kv-local/kv.sqlite3
 ```
 
-可通过环境变量 `KV_PATH` 自定义存储路径：
+可通过环境变量 `KV_PATH` 自定义存储路径（`KV_PATH` 为目录，实际文件为
+`<KV_PATH>/kv.sqlite3`）：
 
 ```bash
 KV_PATH=/custom/path deno task dev

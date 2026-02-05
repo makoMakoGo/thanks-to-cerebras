@@ -2,7 +2,7 @@
  * Tests for models.ts
  */
 
-import { assertEquals, assertExists } from "@std/assert";
+import { assertEquals } from "@std/assert";
 import {
   isModelNotFoundPayload,
   isModelNotFoundText,

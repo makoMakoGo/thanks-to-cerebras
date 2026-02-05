@@ -82,5 +82,5 @@ function isProxyAuthorized(req: Request) {
 
 ## 本地运行
 
-本地运行时 KV 自动存储在 `.deno-kv-local/kv.sqlite3`（通过检测
-`DENO_DEPLOYMENT_ID` 判断环境）。
+本地运行时 KV 默认存储在 `src/.deno-kv-local/kv.sqlite3`，可通过
+`KV_PATH` 指定目录（通过检测 `DENO_DEPLOYMENT_ID` 判断是否为 Deno Deploy）。

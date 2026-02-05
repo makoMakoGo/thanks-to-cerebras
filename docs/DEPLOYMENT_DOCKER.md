@@ -5,7 +5,8 @@
 ## 快速开始
 
 ```bash
-git clone https://github.com/your-username/thanks-to-cerebras.git
+git clone https://github.com/zhu-jl18/thanks-to-cerebras.git
+# 或 clone 你的 fork：https://github.com/<your-username>/thanks-to-cerebras.git
 cd thanks-to-cerebras
 docker compose up -d
 ```

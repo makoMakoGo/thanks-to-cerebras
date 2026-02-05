@@ -2,6 +2,7 @@
 .github
 *.md
 image/
-.deno-kv-local/
+.deno-kv-local*/
+src/.deno-kv-local*/
 .vscode
 docs/
