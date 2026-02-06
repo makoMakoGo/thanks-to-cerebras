@@ -38,6 +38,10 @@ export class RateLimiter {
       }
     }
   }
+
+  reset(): void {
+    this.buckets.clear();
+  }
 }
 
 export const loginLimiter = new RateLimiter(5, 60_000);
