@@ -251,6 +251,9 @@ export async function kvUpdateConfig(
       setCachedConfig(validatedConfig);
       return validatedConfig;
     }
+    const baseMs = Math.min(10 * 2 ** attempt, 500);
+    const jitter = Math.random() * baseMs;
+    await new Promise((r) => setTimeout(r, baseMs + jitter));
   }
   throw new Error("配置更新失败：达到最大重试次数");
 }
