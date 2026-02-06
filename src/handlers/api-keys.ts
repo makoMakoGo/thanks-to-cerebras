@@ -129,7 +129,8 @@ export async function handleApiKeyRoutes(
 
       return jsonResponse(result, { status: 201 });
     } catch (error) {
-      return problemResponse(getErrorMessage(error), {
+      console.error("[API-KEYS] add key error:", error);
+      return problemResponse("请求处理失败", {
         status: 400,
         instance: path,
       });
@@ -182,7 +183,8 @@ export async function handleApiKeyRoutes(
         results,
       });
     } catch (error) {
-      return problemResponse(getErrorMessage(error), {
+      console.error("[API-KEYS] batch import error:", error);
+      return problemResponse("请求处理失败", {
         status: 400,
         instance: path,
       });

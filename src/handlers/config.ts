@@ -1,7 +1,6 @@
 import { MIN_KV_FLUSH_INTERVAL_MS } from "../constants.ts";
 import { jsonResponse, problemResponse } from "../http.ts";
 import {
-  getErrorMessage,
   maskKey,
   normalizeKvFlushIntervalMs,
 } from "../utils.ts";
@@ -61,7 +60,8 @@ export async function handleConfigRoutes(
         kvFlushIntervalMinMs: MIN_KV_FLUSH_INTERVAL_MS,
       });
     } catch (error) {
-      return problemResponse(getErrorMessage(error), {
+      console.error("[CONFIG] update error:", error);
+      return problemResponse("配置更新失败", {
         status: 400,
         instance: path,
       });

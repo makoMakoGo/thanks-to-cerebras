@@ -9,7 +9,6 @@ import {
 import { jsonError, jsonResponse } from "../http.ts";
 import {
   fetchWithTimeout,
-  getErrorMessage,
   isAbortError,
   safeJsonParse,
 } from "../utils.ts";
@@ -54,6 +53,15 @@ export async function handleProxyEndpoint(req: Request): Promise<Response> {
 
   try {
     const requestBody = await req.json();
+
+    if (
+      !requestBody ||
+      typeof requestBody !== "object" ||
+      !Array.isArray(requestBody.messages) ||
+      requestBody.messages.length === 0
+    ) {
+      return jsonError("请求体必须包含非空的 messages 数组", 400);
+    }
 
     let apiKeyData = getNextApiKeyFast(Date.now());
     if (!apiKeyData) {
@@ -110,9 +118,11 @@ export async function handleProxyEndpoint(req: Request): Promise<Response> {
           PROXY_REQUEST_TIMEOUT_MS,
         );
       } catch (error) {
-        const timeout = isAbortError(error);
-        const msg = timeout ? "上游请求超时" : getErrorMessage(error);
-        return jsonError(msg, timeout ? 504 : 502);
+        if (isAbortError(error)) {
+          return jsonError("上游请求超时", 504);
+        }
+        console.error("[PROXY] upstream fetch error:", error);
+        return jsonError("上游请求失败", 502);
       }
 
       if (apiResponse.status === 404) {
@@ -180,6 +190,7 @@ export async function handleProxyEndpoint(req: Request): Promise<Response> {
 
     return jsonError("模型不可用", 502);
   } catch (error) {
-    return jsonError(getErrorMessage(error));
+    console.error("[PROXY] handler error:", error);
+    return jsonError("代理请求处理失败", 500);
   }
 }

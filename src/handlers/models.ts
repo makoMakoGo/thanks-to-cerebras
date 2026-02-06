@@ -148,7 +148,8 @@ export async function handleModelRoutes(
 
       return jsonResponse({ success: true, models });
     } catch (error) {
-      return problemResponse(getErrorMessage(error), {
+      console.error("[MODELS] update pool error:", error);
+      return problemResponse("模型池更新失败", {
         status: 400,
         instance: path,
       });

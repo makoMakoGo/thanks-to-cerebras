@@ -1,5 +1,4 @@
 import { jsonResponse, problemResponse } from "../http.ts";
-import { getErrorMessage } from "../utils.ts";
 import {
   createAdminToken,
   deleteAdminToken,
@@ -39,7 +38,8 @@ export async function handleAuthRoutes(
       const token = await createAdminToken();
       return jsonResponse({ success: true, token });
     } catch (error) {
-      return problemResponse(getErrorMessage(error), {
+      console.error("[AUTH] setup error:", error);
+      return problemResponse("请求处理失败", {
         status: 400,
         instance: path,
       });
@@ -56,7 +56,8 @@ export async function handleAuthRoutes(
       const token = await createAdminToken();
       return jsonResponse({ success: true, token });
     } catch (error) {
-      return problemResponse(getErrorMessage(error), {
+      console.error("[AUTH] login error:", error);
+      return problemResponse("请求处理失败", {
         status: 400,
         instance: path,
       });
