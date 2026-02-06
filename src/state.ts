@@ -26,9 +26,14 @@ function assertKvSupported(): void {
   throw new Error(message);
 }
 
-export const kv = await (() => {
+export let kv: Deno.Kv;
+
+export async function initKv(): Promise<void> {
   assertKvSupported();
-  if (isDenoDeployment) return Deno.openKv();
+  if (isDenoDeployment) {
+    kv = await Deno.openKv();
+    return;
+  }
   const kvDir = Deno.env.get("KV_PATH") ||
     `${import.meta.dirname}/.deno-kv-local`;
   try {
@@ -45,8 +50,8 @@ export const kv = await (() => {
       throw e;
     }
   }
-  return Deno.openKv(`${kvDir}/kv.sqlite3`);
-})();
+  kv = await Deno.openKv(`${kvDir}/kv.sqlite3`);
+}
 
 // Config cache
 export let cachedConfig: ProxyConfig | null = null;

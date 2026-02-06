@@ -2,7 +2,7 @@
 
 import { ADMIN_CORS_HEADERS, CORS_HEADERS } from "./src/constants.ts";
 import { problemResponse } from "./src/http.ts";
-import { cachedConfig, isDenoDeployment } from "./src/state.ts";
+import { cachedConfig, initKv, isDenoDeployment } from "./src/state.ts";
 import { isAdminAuthorized } from "./src/auth.ts";
 import {
   applyKvFlushInterval,
@@ -99,6 +99,7 @@ console.log(`- 模型接口: /v1/models`);
 console.log(`- 存储: Deno KV`);
 
 if (import.meta.main) {
+  await initKv();
   await bootstrapCache();
   applyKvFlushInterval(cachedConfig);
 
