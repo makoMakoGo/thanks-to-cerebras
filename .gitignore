@@ -66,5 +66,4 @@ out/
 .deno/
 deno_dir/
 deno_cache/
-deno.lock
 .deno-kv-local*/
