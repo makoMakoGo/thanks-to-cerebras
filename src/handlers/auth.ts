@@ -7,6 +7,15 @@ import {
   verifyAdminPassword,
   verifyAdminToken,
 } from "../auth.ts";
+import { loginLimiter } from "../rate-limit.ts";
+
+function getClientIp(req: Request): string {
+  return (
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    req.headers.get("x-real-ip") ||
+    "unknown"
+  );
+}
 
 export async function handleAuthRoutes(
   req: Request,
@@ -22,6 +31,17 @@ export async function handleAuthRoutes(
   }
 
   if (req.method === "POST" && path === "/api/auth/setup") {
+    const ip = getClientIp(req);
+    const limit = loginLimiter.check(ip);
+    if (!limit.allowed) {
+      const retryAfter = Math.ceil(limit.retryAfterMs / 1000);
+      return problemResponse("请求过于频繁", {
+        status: 429,
+        instance: path,
+        headers: { "Retry-After": String(retryAfter) },
+      });
+    }
+
     const hasPassword = (await getAdminPassword()) !== null;
     if (hasPassword) {
       return problemResponse("密码已设置", { status: 400, instance: path });
@@ -47,6 +67,17 @@ export async function handleAuthRoutes(
   }
 
   if (req.method === "POST" && path === "/api/auth/login") {
+    const ip = getClientIp(req);
+    const limit = loginLimiter.check(ip);
+    if (!limit.allowed) {
+      const retryAfter = Math.ceil(limit.retryAfterMs / 1000);
+      return problemResponse("请求过于频繁", {
+        status: 429,
+        instance: path,
+        headers: { "Retry-After": String(retryAfter) },
+      });
+    }
+
     try {
       const { password } = await req.json();
       const valid = await verifyAdminPassword(password);
