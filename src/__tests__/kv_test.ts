@@ -6,7 +6,7 @@
  */
 
 import { assertEquals, assertThrows } from "@std/assert";
-import { resolveKvFlushIntervalMs, validateProxyConfig } from "../kv.ts";
+import { resolveKvFlushIntervalMs, validateProxyConfig } from "../kv/config.ts";
 import {
   DEFAULT_KV_FLUSH_INTERVAL_MS,
   MIN_KV_FLUSH_INTERVAL_MS,

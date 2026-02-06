@@ -6,7 +6,7 @@ import {
   applyKvFlushInterval,
   bootstrapCache,
   flushDirtyToKv,
-} from "./src/kv.ts";
+} from "./src/kv/flush.ts";
 import { resolvePort } from "./src/utils.ts";
 import { Router } from "./src/router.ts";
 import { renderAdminPage } from "./src/ui/admin.ts";

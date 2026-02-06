@@ -5,13 +5,13 @@ import {
   normalizeKvFlushIntervalMs,
 } from "../utils.ts";
 import { state } from "../state.ts";
+import { kvGetAllKeys } from "../kv/api-keys.ts";
 import {
-  applyKvFlushInterval,
-  kvGetAllKeys,
   kvGetConfig,
   kvUpdateConfig,
   resolveKvFlushIntervalMs,
-} from "../kv.ts";
+} from "../kv/config.ts";
+import { applyKvFlushInterval } from "../kv/flush.ts";
 import type { Router } from "../router.ts";
 
 async function getStats(): Promise<Response> {

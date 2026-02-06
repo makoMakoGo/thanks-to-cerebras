@@ -6,7 +6,7 @@ import {
   kvDeleteProxyKey,
   kvGetAllProxyKeys,
   kvGetProxyKeyById,
-} from "../kv.ts";
+} from "../kv/proxy-keys.ts";
 import type { Router } from "../router.ts";
 
 async function listProxyKeys(): Promise<Response> {

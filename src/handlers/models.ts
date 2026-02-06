@@ -11,16 +11,14 @@ import {
   safeJsonParse,
 } from "../utils.ts";
 import { state } from "../state.ts";
+import { kvGetAllKeys, kvUpdateKey } from "../kv/api-keys.ts";
+import { kvGetConfig, kvUpdateConfig } from "../kv/config.ts";
 import {
   isModelCatalogFresh,
-  kvGetAllKeys,
-  kvGetConfig,
   kvGetModelCatalog,
-  kvUpdateConfig,
-  kvUpdateKey,
   refreshModelCatalog,
   removeModelFromPool,
-} from "../kv.ts";
+} from "../kv/model-catalog.ts";
 import {
   isModelNotFoundPayload,
   isModelNotFoundText,

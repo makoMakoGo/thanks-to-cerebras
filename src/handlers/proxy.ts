@@ -24,7 +24,8 @@ import {
   isModelNotFoundPayload,
   isModelNotFoundText,
 } from "../models.ts";
-import { kvMergeAllApiKeysIntoCache, removeModelFromPool } from "../kv.ts";
+import { kvMergeAllApiKeysIntoCache } from "../kv/api-keys.ts";
+import { removeModelFromPool } from "../kv/model-catalog.ts";
 
 import type { Router } from "../router.ts";
 

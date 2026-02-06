@@ -5,7 +5,7 @@ import {
 } from "./constants.ts";
 import { hashPassword, verifyPbkdf2Password } from "./crypto.ts";
 import { state } from "./state.ts";
-import { kvGetAllProxyKeys } from "./kv.ts";
+import { kvGetAllProxyKeys } from "./kv/proxy-keys.ts";
 
 // Admin password management
 export async function getAdminPassword(): Promise<string | null> {
