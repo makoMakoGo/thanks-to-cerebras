@@ -39,11 +39,17 @@ export const DEFAULT_MODEL_POOL = [
 export const FALLBACK_MODEL = "qwen-3-235b-a22b-instruct-2507";
 export const EXTERNAL_MODEL_ID = "cerebras-translator";
 
-// HTTP headers
+// HTTP headers — proxy endpoints (open CORS for browser extensions etc.)
 export const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, GET, OPTIONS, DELETE, PUT",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Admin-Token",
+  "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
+// Admin endpoints — same-origin only (no Access-Control-Allow-Origin)
+export const ADMIN_CORS_HEADERS = {
+  "Access-Control-Allow-Methods": "POST, GET, OPTIONS, DELETE, PUT, PATCH",
+  "Access-Control-Allow-Headers": "Content-Type, X-Admin-Token",
 };
 
 export const NO_CACHE_HEADERS = {

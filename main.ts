@@ -1,6 +1,6 @@
 // main.ts - Cerebras API 代理与密钥管理系统
 
-import { CORS_HEADERS } from "./src/constants.ts";
+import { ADMIN_CORS_HEADERS, CORS_HEADERS } from "./src/constants.ts";
 import { problemResponse } from "./src/http.ts";
 import { cachedConfig, isDenoDeployment } from "./src/state.ts";
 import { isAdminAuthorized } from "./src/auth.ts";
@@ -29,7 +29,9 @@ async function handler(req: Request): Promise<Response> {
 
   // CORS preflight
   if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers: CORS_HEADERS });
+    const isProxyPath = path.startsWith("/v1/");
+    const headers = isProxyPath ? CORS_HEADERS : ADMIN_CORS_HEADERS;
+    return new Response(null, { status: 204, headers });
   }
 
   // Auth routes (no login required)
