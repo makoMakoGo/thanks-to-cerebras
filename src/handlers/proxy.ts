@@ -26,7 +26,9 @@ import {
 } from "../models.ts";
 import { kvMergeAllApiKeysIntoCache, removeModelFromPool } from "../kv.ts";
 
-export function handleModelsEndpoint(_req: Request): Response {
+import type { Router } from "../router.ts";
+
+function handleModelsEndpoint(): Response {
   const now = Math.floor(Date.now() / 1000);
   return jsonResponse({
     object: "list",
@@ -41,7 +43,7 @@ export function handleModelsEndpoint(_req: Request): Response {
   });
 }
 
-export async function handleProxyEndpoint(req: Request): Promise<Response> {
+async function handleProxyEndpoint(req: Request): Promise<Response> {
   const authResult = await isProxyAuthorized(req);
   if (!authResult.authorized) {
     return jsonError("Unauthorized", 401);
@@ -193,4 +195,10 @@ export async function handleProxyEndpoint(req: Request): Promise<Response> {
     console.error("[PROXY] handler error:", error);
     return jsonError("代理请求处理失败", 500);
   }
+}
+
+export function register(router: Router): void {
+  router
+    .get("/v1/models", handleModelsEndpoint)
+    .post("/v1/chat/completions", handleProxyEndpoint);
 }

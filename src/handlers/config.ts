@@ -12,80 +12,81 @@ import {
   kvUpdateConfig,
   resolveKvFlushIntervalMs,
 } from "../kv.ts";
+import type { Router } from "../router.ts";
 
-export async function handleConfigRoutes(
-  req: Request,
-  path: string,
-): Promise<Response | null> {
-  if (req.method === "GET" && path === "/api/stats") {
-    const [keys, config] = await Promise.all([kvGetAllKeys(), kvGetConfig()]);
-    const stats = {
-      totalKeys: keys.length,
-      activeKeys: keys.filter((k) => k.status === "active").length,
-      totalRequests: config.totalRequests,
-      keyUsage: keys.map((k) => ({
-        id: k.id,
-        maskedKey: maskKey(k.key),
-        useCount: k.useCount,
-        status: k.status,
-      })),
-    };
-    return jsonResponse(stats);
-  }
+async function getStats(): Promise<Response> {
+  const [keys, config] = await Promise.all([kvGetAllKeys(), kvGetConfig()]);
+  const stats = {
+    totalKeys: keys.length,
+    activeKeys: keys.filter((k) => k.status === "active").length,
+    totalRequests: config.totalRequests,
+    keyUsage: keys.map((k) => ({
+      id: k.id,
+      maskedKey: maskKey(k.key),
+      useCount: k.useCount,
+      status: k.status,
+    })),
+  };
+  return jsonResponse(stats);
+}
 
-  if (req.method === "PATCH" && path === "/api/config") {
-    try {
-      const body = await req.json().catch(() => ({}));
-      const raw = body.kvFlushIntervalMs;
+async function updateConfig(req: Request): Promise<Response> {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const raw = body.kvFlushIntervalMs;
 
-      if (typeof raw !== "number" || !Number.isFinite(raw)) {
-        return problemResponse("kvFlushIntervalMs 必须为数字", {
-          status: 400,
-          instance: path,
-        });
-      }
-
-      const normalized = normalizeKvFlushIntervalMs(raw);
-      const next = await kvUpdateConfig((config) => ({
-        ...config,
-        kvFlushIntervalMs: normalized,
-      }));
-
-      applyKvFlushInterval(next);
-
-      return jsonResponse({
-        success: true,
-        kvFlushIntervalMs: normalized,
-        effectiveKvFlushIntervalMs: kvFlushIntervalMsEffective,
-        kvFlushIntervalMinMs: MIN_KV_FLUSH_INTERVAL_MS,
-      });
-    } catch (error) {
-      console.error("[CONFIG] update error:", error);
-      return problemResponse("配置更新失败", {
+    if (typeof raw !== "number" || !Number.isFinite(raw)) {
+      return problemResponse("kvFlushIntervalMs 必须为数字", {
         status: 400,
-        instance: path,
+        instance: "/api/config",
       });
     }
-  }
 
-  if (req.method === "GET" && path === "/api/config") {
-    const config = await kvGetConfig();
-    const configured = normalizeKvFlushIntervalMs(
-      config.kvFlushIntervalMs ?? MIN_KV_FLUSH_INTERVAL_MS,
-    );
-
-    const effective = resolveKvFlushIntervalMs({
+    const normalized = normalizeKvFlushIntervalMs(raw);
+    const next = await kvUpdateConfig((config) => ({
       ...config,
-      kvFlushIntervalMs: configured,
-    });
+      kvFlushIntervalMs: normalized,
+    }));
+
+    applyKvFlushInterval(next);
 
     return jsonResponse({
-      ...config,
-      kvFlushIntervalMs: configured,
-      effectiveKvFlushIntervalMs: effective,
+      success: true,
+      kvFlushIntervalMs: normalized,
+      effectiveKvFlushIntervalMs: kvFlushIntervalMsEffective,
       kvFlushIntervalMinMs: MIN_KV_FLUSH_INTERVAL_MS,
     });
+  } catch (error) {
+    console.error("[CONFIG] update error:", error);
+    return problemResponse("配置更新失败", {
+      status: 400,
+      instance: "/api/config",
+    });
   }
+}
 
-  return null;
+async function getConfig(): Promise<Response> {
+  const config = await kvGetConfig();
+  const configured = normalizeKvFlushIntervalMs(
+    config.kvFlushIntervalMs ?? MIN_KV_FLUSH_INTERVAL_MS,
+  );
+
+  const effective = resolveKvFlushIntervalMs({
+    ...config,
+    kvFlushIntervalMs: configured,
+  });
+
+  return jsonResponse({
+    ...config,
+    kvFlushIntervalMs: configured,
+    effectiveKvFlushIntervalMs: effective,
+    kvFlushIntervalMinMs: MIN_KV_FLUSH_INTERVAL_MS,
+  });
+}
+
+export function register(router: Router): void {
+  router
+    .get("/api/stats", getStats)
+    .get("/api/config", getConfig)
+    .patch("/api/config", updateConfig);
 }

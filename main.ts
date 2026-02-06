@@ -1,5 +1,3 @@
-// main.ts - Cerebras API 代理与密钥管理系统
-
 import { ADMIN_CORS_HEADERS, CORS_HEADERS } from "./src/constants.ts";
 import { problemResponse } from "./src/http.ts";
 import { cachedConfig, initKv, isDenoDeployment } from "./src/state.ts";
@@ -10,83 +8,48 @@ import {
   flushDirtyToKv,
 } from "./src/kv.ts";
 import { resolvePort } from "./src/utils.ts";
-
-// Handlers
-import { handleAuthRoutes } from "./src/handlers/auth.ts";
-import { handleProxyKeyRoutes } from "./src/handlers/proxy-keys.ts";
-import { handleApiKeyRoutes } from "./src/handlers/api-keys.ts";
-import { handleModelRoutes } from "./src/handlers/models.ts";
-import { handleConfigRoutes } from "./src/handlers/config.ts";
-import {
-  handleModelsEndpoint,
-  handleProxyEndpoint,
-} from "./src/handlers/proxy.ts";
+import { Router } from "./src/router.ts";
 import { renderAdminPage } from "./src/ui/admin.ts";
+
+import { register as registerAuth } from "./src/handlers/auth.ts";
+import { register as registerProxyKeys } from "./src/handlers/proxy-keys.ts";
+import { register as registerApiKeys } from "./src/handlers/api-keys.ts";
+import { register as registerModels } from "./src/handlers/models.ts";
+import { register as registerConfig } from "./src/handlers/config.ts";
+import { register as registerProxy } from "./src/handlers/proxy.ts";
+
+const router = new Router();
+registerAuth(router);
+registerProxyKeys(router);
+registerApiKeys(router);
+registerModels(router);
+registerConfig(router);
+registerProxy(router);
+router
+  .get("/healthz", () => new Response("ok", { status: 200 }))
+  .get("/", () => renderAdminPage());
 
 async function handler(req: Request): Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname;
 
-  // CORS preflight
   if (req.method === "OPTIONS") {
-    const isProxyPath = path.startsWith("/v1/");
-    const headers = isProxyPath ? CORS_HEADERS : ADMIN_CORS_HEADERS;
+    const headers = path.startsWith("/v1/")
+      ? CORS_HEADERS
+      : ADMIN_CORS_HEADERS;
     return new Response(null, { status: 204, headers });
   }
 
-  // Auth routes (no login required)
-  if (path.startsWith("/api/auth/")) {
-    const response = await handleAuthRoutes(req, path);
-    if (response) return response;
-    return problemResponse("Not Found", { status: 404, instance: path });
-  }
-
-  // Protected admin API routes
-  if (path.startsWith("/api/")) {
+  if (path.startsWith("/api/") && !path.startsWith("/api/auth/")) {
     if (!(await isAdminAuthorized(req))) {
       return problemResponse("未登录", { status: 401, instance: path });
     }
-
-    // Proxy keys management
-    const proxyKeyResponse = await handleProxyKeyRoutes(req, path);
-    if (proxyKeyResponse) return proxyKeyResponse;
-
-    // API keys management
-    const apiKeyResponse = await handleApiKeyRoutes(req, path);
-    if (apiKeyResponse) return apiKeyResponse;
-
-    // Model management
-    const modelResponse = await handleModelRoutes(req, path);
-    if (modelResponse) return modelResponse;
-
-    // Config and stats
-    const configResponse = await handleConfigRoutes(req, path);
-    if (configResponse) return configResponse;
-
-    return problemResponse("Not Found", { status: 404, instance: path });
   }
 
-  // GET /v1/models - OpenAI compatible
-  if (req.method === "GET" && path === "/v1/models") {
-    return handleModelsEndpoint(req);
-  }
+  const matched = router.match(req.method, req.url);
+  if (matched) return matched.handler(req, matched.params);
 
-  // POST /v1/chat/completions - Proxy
-  if (req.method === "POST" && path === "/v1/chat/completions") {
-    return await handleProxyEndpoint(req);
-  }
-
-  // Health check
-  if (req.method === "GET" && path === "/healthz") {
-    return new Response("ok", { status: 200 });
-  }
-
-  // Admin panel
-  if (path === "/" && req.method === "GET") {
-    return await renderAdminPage();
-  }
-
-  return new Response("Not Found", { status: 404 });
+  return problemResponse("Not Found", { status: 404, instance: path });
 }
 
 // ================================
