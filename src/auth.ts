@@ -4,23 +4,18 @@ import {
   ADMIN_TOKEN_PREFIX,
 } from "./constants.ts";
 import { hashPassword, verifyPbkdf2Password } from "./crypto.ts";
-import {
-  cachedProxyKeys,
-  dirtyProxyKeyIds,
-  kv,
-  setCachedProxyKeys,
-} from "./state.ts";
+import { state } from "./state.ts";
 import { kvGetAllProxyKeys } from "./kv.ts";
 
 // Admin password management
 export async function getAdminPassword(): Promise<string | null> {
-  const entry = await kv.get<string>(ADMIN_PASSWORD_KEY);
+  const entry = await state.kv.get<string>(ADMIN_PASSWORD_KEY);
   return entry.value;
 }
 
 export async function setAdminPassword(password: string): Promise<void> {
   const hash = await hashPassword(password);
-  await kv.set(ADMIN_PASSWORD_KEY, hash);
+  await state.kv.set(ADMIN_PASSWORD_KEY, hash);
 }
 
 export async function verifyAdminPassword(password: string): Promise<boolean> {
@@ -33,7 +28,7 @@ export async function verifyAdminPassword(password: string): Promise<boolean> {
 export async function createAdminToken(): Promise<string> {
   const token = crypto.randomUUID();
   const expiry = Date.now() + ADMIN_TOKEN_EXPIRY_MS;
-  await kv.set([...ADMIN_TOKEN_PREFIX, token], expiry, {
+  await state.kv.set([...ADMIN_TOKEN_PREFIX, token], expiry, {
     expireIn: ADMIN_TOKEN_EXPIRY_MS,
   });
   return token;
@@ -41,17 +36,17 @@ export async function createAdminToken(): Promise<string> {
 
 export async function verifyAdminToken(token: string | null): Promise<boolean> {
   if (!token) return false;
-  const entry = await kv.get<number>([...ADMIN_TOKEN_PREFIX, token]);
+  const entry = await state.kv.get<number>([...ADMIN_TOKEN_PREFIX, token]);
   if (!entry.value) return false;
   if (Date.now() > entry.value) {
-    await kv.delete([...ADMIN_TOKEN_PREFIX, token]);
+    await state.kv.delete([...ADMIN_TOKEN_PREFIX, token]);
     return false;
   }
   return true;
 }
 
 export async function deleteAdminToken(token: string): Promise<void> {
-  await kv.delete([...ADMIN_TOKEN_PREFIX, token]);
+  await state.kv.delete([...ADMIN_TOKEN_PREFIX, token]);
 }
 
 export async function isAdminAuthorized(req: Request): Promise<boolean> {
@@ -60,7 +55,7 @@ export async function isAdminAuthorized(req: Request): Promise<boolean> {
 }
 
 function findProxyKeyByToken(token: string): string | null {
-  for (const [id, pk] of cachedProxyKeys) {
+  for (const [id, pk] of state.cachedProxyKeys) {
     if (pk.key === token) return id;
   }
   return null;
@@ -70,12 +65,12 @@ function findProxyKeyByToken(token: string): string | null {
 export async function isProxyAuthorized(
   req: Request,
 ): Promise<{ authorized: boolean; keyId?: string }> {
-  if (cachedProxyKeys.size === 0) {
+  if (state.cachedProxyKeys.size === 0) {
     const keys = await kvGetAllProxyKeys();
     if (keys.length === 0) {
       return { authorized: true };
     }
-    setCachedProxyKeys(new Map(keys.map((k) => [k.id, k])));
+    state.cachedProxyKeys = new Map(keys.map((k) => [k.id, k]));
   }
 
   const authHeader = req.headers.get("Authorization");
@@ -89,7 +84,7 @@ export async function isProxyAuthorized(
   if (match) return { authorized: true, keyId: match };
 
   const keys = await kvGetAllProxyKeys();
-  setCachedProxyKeys(new Map(keys.map((k) => [k.id, k])));
+  state.cachedProxyKeys = new Map(keys.map((k) => [k.id, k]));
 
   const retryMatch = findProxyKeyByToken(token);
   if (retryMatch) return { authorized: true, keyId: retryMatch };
@@ -98,9 +93,9 @@ export async function isProxyAuthorized(
 }
 
 export function recordProxyKeyUsage(keyId: string): void {
-  const pk = cachedProxyKeys.get(keyId);
+  const pk = state.cachedProxyKeys.get(keyId);
   if (!pk) return;
   pk.useCount++;
   pk.lastUsed = Date.now();
-  dirtyProxyKeyIds.add(keyId);
+  state.dirtyProxyKeyIds.add(keyId);
 }

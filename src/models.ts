@@ -1,10 +1,4 @@
-import {
-  cachedConfig,
-  cachedModelPool,
-  modelCursor,
-  setCachedModelPool,
-  setModelCursor,
-} from "./state.ts";
+import { state } from "./state.ts";
 
 export function normalizeModelPool(
   rawPool: readonly unknown[] | undefined,
@@ -60,24 +54,24 @@ export function isModelNotFoundPayload(payload: unknown): boolean {
 }
 
 export function getNextModelFast(): string | null {
-  if (cachedModelPool.length === 0) {
+  if (state.cachedModelPool.length === 0) {
     return null;
   }
-  const idx = modelCursor % cachedModelPool.length;
-  const model = cachedModelPool[idx];
-  setModelCursor((idx + 1) % cachedModelPool.length);
+  const idx = state.modelCursor % state.cachedModelPool.length;
+  const model = state.cachedModelPool[idx];
+  state.modelCursor = (idx + 1) % state.cachedModelPool.length;
 
   return model;
 }
 
 export function rebuildModelPoolCache(): void {
-  setCachedModelPool(normalizeModelPool(cachedConfig?.modelPool));
+  state.cachedModelPool = normalizeModelPool(state.cachedConfig?.modelPool);
 
-  if (cachedModelPool.length > 0) {
-    const idx = cachedConfig?.currentModelIndex ?? 0;
-    setModelCursor(idx % cachedModelPool.length);
+  if (state.cachedModelPool.length > 0) {
+    const idx = state.cachedConfig?.currentModelIndex ?? 0;
+    state.modelCursor = idx % state.cachedModelPool.length;
     return;
   }
 
-  setModelCursor(0);
+  state.modelCursor = 0;
 }

@@ -6,8 +6,71 @@ import type {
 } from "./types.ts";
 import { DEFAULT_KV_FLUSH_INTERVAL_MS } from "./constants.ts";
 
-// Deno KV instance
 export const isDenoDeployment = Boolean(Deno.env.get("DENO_DEPLOYMENT_ID"));
+
+export class AppState {
+  kv!: Deno.Kv;
+
+  cachedConfig: ProxyConfig | null = null;
+  dirtyConfig = false;
+
+  cachedKeysById = new Map<string, ApiKey>();
+  cachedActiveKeyIds: string[] = [];
+  cachedCursor = 0;
+  keyCooldownUntil = new Map<string, number>();
+  dirtyKeyIds = new Set<string>();
+
+  flushInProgress = false;
+  kvFlushTimerId: number | null = null;
+  kvFlushIntervalMsEffective = DEFAULT_KV_FLUSH_INTERVAL_MS;
+  pendingTotalRequests = 0;
+
+  cachedModelPool: string[] = [];
+  modelCursor = 0;
+  cachedModelCatalog: ModelCatalog | null = null;
+  modelCatalogFetchInFlight: Promise<ModelCatalog> | null = null;
+
+  cachedProxyKeys = new Map<string, ProxyAuthKey>();
+  dirtyProxyKeyIds = new Set<string>();
+
+  addPendingTotalRequests(delta: number): void {
+    if (!Number.isFinite(delta) || delta <= 0) return;
+    this.pendingTotalRequests += Math.trunc(delta);
+  }
+
+  subtractPendingTotalRequests(delta: number): void {
+    if (!Number.isFinite(delta) || delta <= 0) return;
+    this.pendingTotalRequests = Math.max(
+      0,
+      this.pendingTotalRequests - Math.trunc(delta),
+    );
+  }
+
+  async initKv(): Promise<void> {
+    assertKvSupported();
+    if (isDenoDeployment) {
+      this.kv = await Deno.openKv();
+      return;
+    }
+    const kvDir = Deno.env.get("KV_PATH") ||
+      `${import.meta.dirname}/.deno-kv-local`;
+    try {
+      Deno.mkdirSync(kvDir, { recursive: true });
+    } catch (e) {
+      if (
+        e instanceof Deno.errors.AlreadyExists ||
+        (typeof e === "object" && e !== null && "name" in e &&
+          (e as { name?: string }).name === "AlreadyExists")
+      ) {
+        // Directory already exists
+      } else {
+        console.error("[KV] 无法创建本地 KV 目录：", e);
+        throw e;
+      }
+    }
+    this.kv = await Deno.openKv(`${kvDir}/kv.sqlite3`);
+  }
+}
 
 function assertKvSupported(): void {
   const openKv = (Deno as unknown as { openKv?: unknown }).openKv;
@@ -26,117 +89,4 @@ function assertKvSupported(): void {
   throw new Error(message);
 }
 
-export let kv: Deno.Kv;
-
-export async function initKv(): Promise<void> {
-  assertKvSupported();
-  if (isDenoDeployment) {
-    kv = await Deno.openKv();
-    return;
-  }
-  const kvDir = Deno.env.get("KV_PATH") ||
-    `${import.meta.dirname}/.deno-kv-local`;
-  try {
-    Deno.mkdirSync(kvDir, { recursive: true });
-  } catch (e) {
-    if (
-      e instanceof Deno.errors.AlreadyExists ||
-      (typeof e === "object" && e !== null && "name" in e &&
-        (e as { name?: string }).name === "AlreadyExists")
-    ) {
-      // Directory already exists
-    } else {
-      console.error("[KV] 无法创建本地 KV 目录：", e);
-      throw e;
-    }
-  }
-  kv = await Deno.openKv(`${kvDir}/kv.sqlite3`);
-}
-
-// Config cache
-export let cachedConfig: ProxyConfig | null = null;
-export function setCachedConfig(config: ProxyConfig | null): void {
-  cachedConfig = config;
-}
-
-// API key caches
-export let cachedKeysById = new Map<string, ApiKey>();
-export function setCachedKeysById(keys: Map<string, ApiKey>): void {
-  cachedKeysById = keys;
-}
-
-export let cachedActiveKeyIds: string[] = [];
-export function setCachedActiveKeyIds(ids: string[]): void {
-  cachedActiveKeyIds = ids;
-}
-
-export let cachedCursor = 0;
-export function setCachedCursor(cursor: number): void {
-  cachedCursor = cursor;
-}
-
-export const keyCooldownUntil = new Map<string, number>();
-export const dirtyKeyIds = new Set<string>();
-
-export let dirtyConfig = false;
-export function setDirtyConfig(dirty: boolean): void {
-  dirtyConfig = dirty;
-}
-
-export let flushInProgress = false;
-export function setFlushInProgress(inProgress: boolean): void {
-  flushInProgress = inProgress;
-}
-
-// Model pool cache
-export let cachedModelPool: string[] = [];
-export function setCachedModelPool(pool: string[]): void {
-  cachedModelPool = pool;
-}
-
-export let modelCursor = 0;
-export function setModelCursor(cursor: number): void {
-  modelCursor = cursor;
-}
-
-// Model catalog cache
-export let cachedModelCatalog: ModelCatalog | null = null;
-export function setCachedModelCatalog(catalog: ModelCatalog | null): void {
-  cachedModelCatalog = catalog;
-}
-
-export let modelCatalogFetchInFlight: Promise<ModelCatalog> | null = null;
-export function setModelCatalogFetchInFlight(
-  promise: Promise<ModelCatalog> | null,
-): void {
-  modelCatalogFetchInFlight = promise;
-}
-
-// Proxy auth key cache
-export let cachedProxyKeys = new Map<string, ProxyAuthKey>();
-export function setCachedProxyKeys(keys: Map<string, ProxyAuthKey>): void {
-  cachedProxyKeys = keys;
-}
-
-export const dirtyProxyKeyIds = new Set<string>();
-
-// KV flush timer
-export let kvFlushTimerId: number | null = null;
-export function setKvFlushTimerId(id: number | null): void {
-  kvFlushTimerId = id;
-}
-
-export let kvFlushIntervalMsEffective = DEFAULT_KV_FLUSH_INTERVAL_MS;
-export function setKvFlushIntervalMsEffective(ms: number): void {
-  kvFlushIntervalMsEffective = ms;
-}
-
-export let pendingTotalRequests = 0;
-export function addPendingTotalRequests(delta: number): void {
-  if (!Number.isFinite(delta) || delta <= 0) return;
-  pendingTotalRequests += Math.trunc(delta);
-}
-export function subtractPendingTotalRequests(delta: number): void {
-  if (!Number.isFinite(delta) || delta <= 0) return;
-  pendingTotalRequests = Math.max(0, pendingTotalRequests - Math.trunc(delta));
-}
+export const state = new AppState();

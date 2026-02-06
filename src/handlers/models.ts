@@ -10,7 +10,7 @@ import {
   isAbortError,
   safeJsonParse,
 } from "../utils.ts";
-import { cachedKeysById, cachedModelCatalog } from "../state.ts";
+import { state } from "../state.ts";
 import {
   isModelCatalogFresh,
   kvGetAllKeys,
@@ -32,7 +32,7 @@ import type { Router } from "../router.ts";
 async function getModelCatalog(): Promise<Response> {
   const now = Date.now();
 
-  let catalog = cachedModelCatalog;
+  let catalog = state.cachedModelCatalog;
   if (!catalog || !isModelCatalogFresh(catalog, now)) {
     const kvCatalog = await kvGetModelCatalog();
     if (kvCatalog) {
@@ -73,7 +73,7 @@ async function getModelCatalog(): Promise<Response> {
 }
 
 async function refreshCatalog(): Promise<Response> {
-  let catalog = cachedModelCatalog ?? (await kvGetModelCatalog());
+  let catalog = state.cachedModelCatalog ?? (await kvGetModelCatalog());
 
   try {
     catalog = await refreshModelCatalog();
@@ -168,7 +168,7 @@ async function testModel(
     });
   }
 
-  let activeKey = Array.from(cachedKeysById.values()).find(
+  let activeKey = Array.from(state.cachedKeysById.values()).find(
     (k) => k.status === "active",
   );
   if (!activeKey) {

@@ -7,23 +7,15 @@
  */
 
 import { assertEquals } from "@std/assert";
-import {
-  cachedActiveKeyIds,
-  cachedKeysById,
-  keyCooldownUntil,
-  setCachedActiveKeyIds,
-  setCachedCursor,
-  setCachedKeysById,
-} from "../state.ts";
+import { state } from "../state.ts";
 import { getNextApiKeyFast, rebuildActiveKeyIds } from "../api-keys.ts";
 import { createMockApiKey } from "./test_utils.ts";
 
-// Helper to reset state before each test
 function resetState() {
-  setCachedKeysById(new Map());
-  setCachedActiveKeyIds([]);
-  setCachedCursor(0);
-  keyCooldownUntil.clear();
+  state.cachedKeysById = new Map();
+  state.cachedActiveKeyIds = [];
+  state.cachedCursor = 0;
+  state.keyCooldownUntil.clear();
 }
 
 Deno.test("rebuildActiveKeyIds - builds sorted list of active keys", () => {
@@ -45,23 +37,21 @@ Deno.test("rebuildActiveKeyIds - builds sorted list of active keys", () => {
     createdAt: 1500,
   });
 
-  setCachedKeysById(
-    new Map([
-      ["key-1", key1],
-      ["key-2", key2],
-      ["key-3", key3],
-    ]),
-  );
+  state.cachedKeysById = new Map([
+    ["key-1", key1],
+    ["key-2", key2],
+    ["key-3", key3],
+  ]);
 
   rebuildActiveKeyIds();
 
-  assertEquals(cachedActiveKeyIds, ["key-1", "key-2"]);
+  assertEquals(state.cachedActiveKeyIds, ["key-1", "key-2"]);
 });
 
 Deno.test("rebuildActiveKeyIds - handles empty key set", () => {
   resetState();
   rebuildActiveKeyIds();
-  assertEquals(cachedActiveKeyIds, []);
+  assertEquals(state.cachedActiveKeyIds, []);
 });
 
 Deno.test("rebuildActiveKeyIds - excludes inactive keys", () => {
@@ -73,10 +63,10 @@ Deno.test("rebuildActiveKeyIds - excludes inactive keys", () => {
     createdAt: 1000,
   });
 
-  setCachedKeysById(new Map([["key-1", key1]]));
+  state.cachedKeysById = new Map([["key-1", key1]]);
   rebuildActiveKeyIds();
 
-  assertEquals(cachedActiveKeyIds, []);
+  assertEquals(state.cachedActiveKeyIds, []);
 });
 
 Deno.test("getNextApiKeyFast - returns null when no keys available", () => {
@@ -101,12 +91,10 @@ Deno.test("getNextApiKeyFast - returns key and increments cursor", () => {
     createdAt: 2000,
   });
 
-  setCachedKeysById(
-    new Map([
-      ["key-1", key1],
-      ["key-2", key2],
-    ]),
-  );
+  state.cachedKeysById = new Map([
+    ["key-1", key1],
+    ["key-2", key2],
+  ]);
   rebuildActiveKeyIds();
 
   const now = Date.now();
@@ -137,17 +125,14 @@ Deno.test("getNextApiKeyFast - skips keys in cooldown", () => {
     createdAt: 2000,
   });
 
-  setCachedKeysById(
-    new Map([
-      ["key-1", key1],
-      ["key-2", key2],
-    ]),
-  );
+  state.cachedKeysById = new Map([
+    ["key-1", key1],
+    ["key-2", key2],
+  ]);
   rebuildActiveKeyIds();
 
   const now = Date.now();
-  // Put key-1 in cooldown
-  keyCooldownUntil.set("key-1", now + 10000);
+  state.keyCooldownUntil.set("key-1", now + 10000);
 
   const result = getNextApiKeyFast(now);
   assertEquals(result?.key, "api-key-2");
@@ -163,11 +148,11 @@ Deno.test("getNextApiKeyFast - returns null when all keys in cooldown", () => {
     createdAt: 1000,
   });
 
-  setCachedKeysById(new Map([["key-1", key1]]));
+  state.cachedKeysById = new Map([["key-1", key1]]);
   rebuildActiveKeyIds();
 
   const now = Date.now();
-  keyCooldownUntil.set("key-1", now + 10000);
+  state.keyCooldownUntil.set("key-1", now + 10000);
 
   const result = getNextApiKeyFast(now);
   assertEquals(result, null);
@@ -184,11 +169,11 @@ Deno.test("getNextApiKeyFast - increments useCount", () => {
     createdAt: 1000,
   });
 
-  setCachedKeysById(new Map([["key-1", key1]]));
+  state.cachedKeysById = new Map([["key-1", key1]]);
   rebuildActiveKeyIds();
 
   getNextApiKeyFast(Date.now());
 
-  const updatedKey = cachedKeysById.get("key-1");
+  const updatedKey = state.cachedKeysById.get("key-1");
   assertEquals(updatedKey?.useCount, 6);
 });

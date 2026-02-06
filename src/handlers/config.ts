@@ -4,7 +4,7 @@ import {
   maskKey,
   normalizeKvFlushIntervalMs,
 } from "../utils.ts";
-import { kvFlushIntervalMsEffective } from "../state.ts";
+import { state } from "../state.ts";
 import {
   applyKvFlushInterval,
   kvGetAllKeys,
@@ -53,7 +53,7 @@ async function updateConfig(req: Request): Promise<Response> {
     return jsonResponse({
       success: true,
       kvFlushIntervalMs: normalized,
-      effectiveKvFlushIntervalMs: kvFlushIntervalMsEffective,
+      effectiveKvFlushIntervalMs: state.kvFlushIntervalMsEffective,
       kvFlushIntervalMinMs: MIN_KV_FLUSH_INTERVAL_MS,
     });
   } catch (error) {

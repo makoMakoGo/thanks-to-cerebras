@@ -25,32 +25,7 @@ import {
 } from "./utils.ts";
 import { rebuildActiveKeyIds } from "./api-keys.ts";
 import { normalizeModelPool, rebuildModelPoolCache } from "./models.ts";
-import {
-  cachedConfig,
-  cachedKeysById,
-  cachedModelPool,
-  cachedProxyKeys,
-  dirtyConfig,
-  dirtyKeyIds,
-  dirtyProxyKeyIds,
-  flushInProgress,
-  keyCooldownUntil,
-  kv,
-  kvFlushIntervalMsEffective,
-  kvFlushTimerId,
-  modelCatalogFetchInFlight,
-  pendingTotalRequests,
-  setCachedConfig,
-  setCachedKeysById,
-  setCachedModelCatalog,
-  setCachedProxyKeys,
-  setDirtyConfig,
-  setFlushInProgress,
-  setKvFlushIntervalMsEffective,
-  setKvFlushTimerId,
-  setModelCatalogFetchInFlight,
-  subtractPendingTotalRequests,
-} from "./state.ts";
+import { state } from "./state.ts";
 
 // KV flush interval management
 export function resolveKvFlushIntervalMs(config: ProxyConfig | null): number {
@@ -59,57 +34,62 @@ export function resolveKvFlushIntervalMs(config: ProxyConfig | null): number {
 }
 
 export function applyKvFlushInterval(config: ProxyConfig | null): void {
-  setKvFlushIntervalMsEffective(resolveKvFlushIntervalMs(config));
+  state.kvFlushIntervalMsEffective = resolveKvFlushIntervalMs(config);
 
-  if (kvFlushTimerId !== null) {
-    clearInterval(kvFlushTimerId);
+  if (state.kvFlushTimerId !== null) {
+    clearInterval(state.kvFlushTimerId);
   }
-  setKvFlushTimerId(setInterval(flushDirtyToKv, kvFlushIntervalMsEffective));
+  state.kvFlushTimerId = setInterval(
+    flushDirtyToKv,
+    state.kvFlushIntervalMsEffective,
+  );
 }
 
 // Flush dirty data to KV
 export async function flushDirtyToKv(): Promise<void> {
-  // Clean expired cooldown entries to prevent memory leaks
   const now = Date.now();
-  for (const [id, until] of keyCooldownUntil) {
+  for (const [id, until] of state.keyCooldownUntil) {
     if (until < now) {
-      keyCooldownUntil.delete(id);
+      state.keyCooldownUntil.delete(id);
     }
   }
 
-  if (flushInProgress) return;
-  if (!dirtyConfig && dirtyKeyIds.size === 0 && dirtyProxyKeyIds.size === 0) {
+  if (state.flushInProgress) return;
+  if (
+    !state.dirtyConfig && state.dirtyKeyIds.size === 0 &&
+    state.dirtyProxyKeyIds.size === 0
+  ) {
     return;
   }
-  if (!cachedConfig) return;
+  if (!state.cachedConfig) return;
 
-  setFlushInProgress(true);
-  const keyIds = Array.from(dirtyKeyIds);
-  dirtyKeyIds.clear();
-  const proxyKeyIds = Array.from(dirtyProxyKeyIds);
-  dirtyProxyKeyIds.clear();
-  const flushConfig = dirtyConfig;
-  setDirtyConfig(false);
-  const pendingRequestsSnapshot = pendingTotalRequests;
+  state.flushInProgress = true;
+  const keyIds = Array.from(state.dirtyKeyIds);
+  state.dirtyKeyIds.clear();
+  const proxyKeyIds = Array.from(state.dirtyProxyKeyIds);
+  state.dirtyProxyKeyIds.clear();
+  const flushConfig = state.dirtyConfig;
+  state.dirtyConfig = false;
+  const pendingRequestsSnapshot = state.pendingTotalRequests;
 
   try {
     try {
       const tasks: Promise<unknown>[] = [];
       for (const id of keyIds) {
-        const keyEntry = cachedKeysById.get(id);
+        const keyEntry = state.cachedKeysById.get(id);
         if (!keyEntry) continue;
-        tasks.push(kv.set([...API_KEY_PREFIX, id], keyEntry));
+        tasks.push(state.kv.set([...API_KEY_PREFIX, id], keyEntry));
       }
       for (const id of proxyKeyIds) {
-        const pk = cachedProxyKeys.get(id);
+        const pk = state.cachedProxyKeys.get(id);
         if (!pk) continue;
-        tasks.push(kv.set([...PROXY_KEY_PREFIX, id], pk));
+        tasks.push(state.kv.set([...PROXY_KEY_PREFIX, id], pk));
       }
       await Promise.all(tasks);
     } catch (error) {
-      for (const id of keyIds) dirtyKeyIds.add(id);
-      for (const id of proxyKeyIds) dirtyProxyKeyIds.add(id);
-      setDirtyConfig(dirtyConfig || flushConfig);
+      for (const id of keyIds) state.dirtyKeyIds.add(id);
+      for (const id of proxyKeyIds) state.dirtyProxyKeyIds.add(id);
+      state.dirtyConfig = state.dirtyConfig || flushConfig;
       console.error(`[KV] flush failed:`, error);
       return;
     }
@@ -123,27 +103,27 @@ export async function flushDirtyToKv(): Promise<void> {
         ...config,
         totalRequests: (config.totalRequests ?? 0) + pendingRequestsSnapshot,
       }));
-      subtractPendingTotalRequests(pendingRequestsSnapshot);
+      state.subtractPendingTotalRequests(pendingRequestsSnapshot);
       rebuildModelPoolCache();
     } catch (error) {
-      setDirtyConfig(true);
+      state.dirtyConfig = true;
       console.error(`[KV] config flush failed:`, error);
     }
   } finally {
-    setFlushInProgress(false);
+    state.flushInProgress = false;
   }
 }
 
 // Bootstrap cache from KV
 export async function bootstrapCache(): Promise<void> {
-  setCachedConfig(await kvGetConfig());
+  state.cachedConfig = await kvGetConfig();
   const keys = await kvGetAllKeys();
-  setCachedKeysById(new Map(keys.map((k) => [k.id, k])));
+  state.cachedKeysById = new Map(keys.map((k) => [k.id, k]));
   rebuildActiveKeyIds();
   rebuildModelPoolCache();
 
   const proxyKeys = await kvGetAllProxyKeys();
-  setCachedProxyKeys(new Map(proxyKeys.map((k) => [k.id, k])));
+  state.cachedProxyKeys = new Map(proxyKeys.map((k) => [k.id, k]));
 }
 
 function throwIncompatibleConfig(detail: string): never {
@@ -206,7 +186,7 @@ export function validateProxyConfig(rawValue: unknown): ProxyConfig {
 export async function kvEnsureConfigEntry(): Promise<
   Deno.KvEntry<ProxyConfig>
 > {
-  let entry = await kv.get<ProxyConfig>(CONFIG_KEY);
+  let entry = await state.kv.get<ProxyConfig>(CONFIG_KEY);
 
   if (!entry.value) {
     const defaultConfig: ProxyConfig = {
@@ -215,8 +195,8 @@ export async function kvEnsureConfigEntry(): Promise<
       totalRequests: 0,
       kvFlushIntervalMs: DEFAULT_KV_FLUSH_INTERVAL_MS,
     };
-    await kv.set(CONFIG_KEY, defaultConfig);
-    entry = await kv.get<ProxyConfig>(CONFIG_KEY);
+    await state.kv.set(CONFIG_KEY, defaultConfig);
+    entry = await state.kv.get<ProxyConfig>(CONFIG_KEY);
   }
 
   if (!entry.value) {
@@ -238,17 +218,17 @@ export async function kvUpdateConfig(
     const entry = await kvEnsureConfigEntry();
     const nextConfig = await updater(entry.value);
     if (nextConfig === entry.value) {
-      setCachedConfig(entry.value);
+      state.cachedConfig = entry.value;
       return entry.value;
     }
     const validatedConfig = validateProxyConfig(nextConfig);
-    const result = await kv
+    const result = await state.kv
       .atomic()
       .check(entry)
       .set(CONFIG_KEY, validatedConfig)
       .commit();
     if (result.ok) {
-      setCachedConfig(validatedConfig);
+      state.cachedConfig = validatedConfig;
       return validatedConfig;
     }
     const baseMs = Math.min(10 * 2 ** attempt, 500);
@@ -269,13 +249,13 @@ export function isModelCatalogFresh(
 }
 
 export async function kvGetModelCatalog(): Promise<ModelCatalog | null> {
-  const entry = await kv.get<ModelCatalog>(MODEL_CATALOG_KEY);
+  const entry = await state.kv.get<ModelCatalog>(MODEL_CATALOG_KEY);
   return entry.value ?? null;
 }
 
 export async function refreshModelCatalog(): Promise<ModelCatalog> {
-  if (modelCatalogFetchInFlight) {
-    return await modelCatalogFetchInFlight;
+  if (state.modelCatalogFetchInFlight) {
+    return await state.modelCatalogFetchInFlight;
   }
 
   const promise = (async () => {
@@ -322,20 +302,20 @@ export async function refreshModelCatalog(): Promise<ModelCatalog> {
       models,
     };
 
-    setCachedModelCatalog(catalog);
+    state.cachedModelCatalog = catalog;
 
     try {
-      await kv.set(MODEL_CATALOG_KEY, catalog);
+      await state.kv.set(MODEL_CATALOG_KEY, catalog);
     } catch (error) {
       console.error(`[KV] model catalog save failed:`, error);
     }
 
     return catalog;
   })().finally(() => {
-    setModelCatalogFetchInFlight(null);
+    state.modelCatalogFetchInFlight = null;
   });
 
-  setModelCatalogFetchInFlight(promise);
+  state.modelCatalogFetchInFlight = promise;
   return await promise;
 }
 
@@ -347,7 +327,7 @@ export async function removeModelFromPool(
   const trimmed = model.trim();
   if (!trimmed) return;
 
-  const existed = cachedModelPool.includes(trimmed);
+  const existed = state.cachedModelPool.includes(trimmed);
 
   await kvUpdateConfig((config) => {
     const pool = normalizeModelPool(config.modelPool);
@@ -374,7 +354,7 @@ export async function removeModelFromPool(
 // API key operations
 export async function kvGetAllKeys(): Promise<ApiKey[]> {
   const keys: ApiKey[] = [];
-  const iter = kv.list({ prefix: API_KEY_PREFIX });
+  const iter = state.kv.list({ prefix: API_KEY_PREFIX });
   for await (const entry of iter) {
     keys.push(entry.value as ApiKey);
   }
@@ -384,15 +364,15 @@ export async function kvGetAllKeys(): Promise<ApiKey[]> {
 export async function kvMergeAllApiKeysIntoCache(): Promise<void> {
   const keys = await kvGetAllKeys();
   for (const key of keys) {
-    const local = cachedKeysById.get(key.id);
+    const local = state.cachedKeysById.get(key.id);
     if (!local) {
-      cachedKeysById.set(key.id, key);
+      state.cachedKeysById.set(key.id, key);
       continue;
     }
 
-    const isDirty = dirtyKeyIds.has(key.id);
+    const isDirty = state.dirtyKeyIds.has(key.id);
     if (!isDirty) {
-      cachedKeysById.set(key.id, key);
+      state.cachedKeysById.set(key.id, key);
       continue;
     }
 
@@ -409,13 +389,13 @@ export async function kvMergeAllApiKeysIntoCache(): Promise<void> {
 }
 
 export async function kvGetApiKeyById(id: string): Promise<ApiKey | null> {
-  const cached = cachedKeysById.get(id);
+  const cached = state.cachedKeysById.get(id);
   if (cached) return cached;
 
-  const entry = await kv.get<ApiKey>([...API_KEY_PREFIX, id]);
+  const entry = await state.kv.get<ApiKey>([...API_KEY_PREFIX, id]);
   if (!entry.value) return null;
 
-  cachedKeysById.set(id, entry.value);
+  state.cachedKeysById.set(id, entry.value);
   rebuildActiveKeyIds();
   return entry.value;
 }
@@ -424,7 +404,7 @@ let lastApiKeyCreatedAtMs = 0;
 export async function kvAddKey(
   key: string,
 ): Promise<{ success: boolean; id?: string; error?: string }> {
-  const allKeys = Array.from(cachedKeysById.values());
+  const allKeys = Array.from(state.cachedKeysById.values());
   const existingKey = allKeys.find((k) => k.key === key);
   if (existingKey) {
     return { success: false, error: "密钥已存在" };
@@ -444,8 +424,8 @@ export async function kvAddKey(
     createdAt,
   };
 
-  await kv.set([...API_KEY_PREFIX, id], newKey);
-  cachedKeysById.set(id, newKey);
+  await state.kv.set([...API_KEY_PREFIX, id], newKey);
+  state.cachedKeysById.set(id, newKey);
   rebuildActiveKeyIds();
 
   return { success: true, id };
@@ -455,15 +435,15 @@ export async function kvDeleteKey(
   id: string,
 ): Promise<{ success: boolean; error?: string }> {
   const key = [...API_KEY_PREFIX, id];
-  const result = await kv.get(key);
+  const result = await state.kv.get(key);
   if (!result.value) {
     return { success: false, error: "密钥不存在" };
   }
 
-  await kv.delete(key);
-  cachedKeysById.delete(id);
-  keyCooldownUntil.delete(id);
-  dirtyKeyIds.delete(id);
+  await state.kv.delete(key);
+  state.cachedKeysById.delete(id);
+  state.keyCooldownUntil.delete(id);
+  state.dirtyKeyIds.delete(id);
   rebuildActiveKeyIds();
   return { success: true };
 }
@@ -473,18 +453,19 @@ export async function kvUpdateKey(
   updates: Partial<ApiKey>,
 ): Promise<void> {
   const key = [...API_KEY_PREFIX, id];
-  const existing = cachedKeysById.get(id) ?? (await kv.get<ApiKey>(key)).value;
+  const existing = state.cachedKeysById.get(id) ??
+    (await state.kv.get<ApiKey>(key)).value;
   if (!existing) return;
   const updated = { ...existing, ...updates };
-  await kv.set(key, updated);
-  cachedKeysById.set(id, updated);
+  await state.kv.set(key, updated);
+  state.cachedKeysById.set(id, updated);
   rebuildActiveKeyIds();
 }
 
 // Proxy key operations
 export async function kvGetAllProxyKeys(): Promise<ProxyAuthKey[]> {
   const keys: ProxyAuthKey[] = [];
-  const iter = kv.list({ prefix: PROXY_KEY_PREFIX });
+  const iter = state.kv.list({ prefix: PROXY_KEY_PREFIX });
   for await (const entry of iter) {
     keys.push(entry.value as ProxyAuthKey);
   }
@@ -494,20 +475,20 @@ export async function kvGetAllProxyKeys(): Promise<ProxyAuthKey[]> {
 export async function kvGetProxyKeyById(
   id: string,
 ): Promise<ProxyAuthKey | null> {
-  const cached = cachedProxyKeys.get(id);
+  const cached = state.cachedProxyKeys.get(id);
   if (cached) return cached;
 
-  const entry = await kv.get<ProxyAuthKey>([...PROXY_KEY_PREFIX, id]);
+  const entry = await state.kv.get<ProxyAuthKey>([...PROXY_KEY_PREFIX, id]);
   if (!entry.value) return null;
 
-  cachedProxyKeys.set(id, entry.value);
+  state.cachedProxyKeys.set(id, entry.value);
   return entry.value;
 }
 
 export async function kvAddProxyKey(
   name: string,
 ): Promise<{ success: boolean; id?: string; key?: string; error?: string }> {
-  if (cachedProxyKeys.size >= MAX_PROXY_KEYS) {
+  if (state.cachedProxyKeys.size >= MAX_PROXY_KEYS) {
     return {
       success: false,
       error: `最多只能创建 ${MAX_PROXY_KEYS} 个代理密钥`,
@@ -519,13 +500,13 @@ export async function kvAddProxyKey(
   const newKey: ProxyAuthKey = {
     id,
     key,
-    name: name || `密钥 ${cachedProxyKeys.size + 1}`,
+    name: name || `密钥 ${state.cachedProxyKeys.size + 1}`,
     useCount: 0,
     createdAt: Date.now(),
   };
 
-  await kv.set([...PROXY_KEY_PREFIX, id], newKey);
-  cachedProxyKeys.set(id, newKey);
+  await state.kv.set([...PROXY_KEY_PREFIX, id], newKey);
+  state.cachedProxyKeys.set(id, newKey);
 
   return { success: true, id, key };
 }
@@ -534,13 +515,13 @@ export async function kvDeleteProxyKey(
   id: string,
 ): Promise<{ success: boolean; error?: string }> {
   const key = [...PROXY_KEY_PREFIX, id];
-  const result = await kv.get(key);
+  const result = await state.kv.get(key);
   if (!result.value) {
     return { success: false, error: "密钥不存在" };
   }
 
-  await kv.delete(key);
-  cachedProxyKeys.delete(id);
-  dirtyProxyKeyIds.delete(id);
+  await state.kv.delete(key);
+  state.cachedProxyKeys.delete(id);
+  state.dirtyProxyKeyIds.delete(id);
   return { success: true };
 }

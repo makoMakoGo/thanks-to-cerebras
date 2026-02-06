@@ -12,7 +12,7 @@ import {
   parseBatchInput,
   safeJsonParse,
 } from "../utils.ts";
-import { cachedModelPool } from "../state.ts";
+import { state } from "../state.ts";
 import {
   kvAddKey,
   kvDeleteKey,
@@ -33,8 +33,8 @@ export async function testKey(
     return { success: false, status: "invalid", error: "密钥不存在" };
   }
 
-  const testModel = cachedModelPool.length > 0
-    ? cachedModelPool[0]
+  const testModel = state.cachedModelPool.length > 0
+    ? state.cachedModelPool[0]
     : FALLBACK_MODEL;
 
   try {

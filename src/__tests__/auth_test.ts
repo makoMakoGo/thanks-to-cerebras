@@ -6,18 +6,13 @@
  */
 
 import { assertEquals } from "@std/assert";
-import {
-  cachedProxyKeys,
-  dirtyProxyKeyIds,
-  setCachedProxyKeys,
-} from "../state.ts";
+import { state } from "../state.ts";
 import { recordProxyKeyUsage } from "../auth.ts";
 import { createMockProxyKey } from "./test_utils.ts";
 
-// Helper to reset state before each test
 function resetState() {
-  setCachedProxyKeys(new Map());
-  dirtyProxyKeyIds.clear();
+  state.cachedProxyKeys = new Map();
+  state.dirtyProxyKeyIds.clear();
 }
 
 Deno.test("recordProxyKeyUsage - increments useCount", () => {
@@ -27,11 +22,11 @@ Deno.test("recordProxyKeyUsage - increments useCount", () => {
     id: "pk-1",
     useCount: 5,
   });
-  setCachedProxyKeys(new Map([["pk-1", proxyKey]]));
+  state.cachedProxyKeys = new Map([["pk-1", proxyKey]]);
 
   recordProxyKeyUsage("pk-1");
 
-  const updatedKey = cachedProxyKeys.get("pk-1");
+  const updatedKey = state.cachedProxyKeys.get("pk-1");
   assertEquals(updatedKey?.useCount, 6);
 });
 
@@ -42,13 +37,13 @@ Deno.test("recordProxyKeyUsage - sets lastUsed timestamp", () => {
     id: "pk-1",
     lastUsed: undefined,
   });
-  setCachedProxyKeys(new Map([["pk-1", proxyKey]]));
+  state.cachedProxyKeys = new Map([["pk-1", proxyKey]]);
 
   const before = Date.now();
   recordProxyKeyUsage("pk-1");
   const after = Date.now();
 
-  const updatedKey = cachedProxyKeys.get("pk-1");
+  const updatedKey = state.cachedProxyKeys.get("pk-1");
   assertEquals(updatedKey?.lastUsed !== undefined, true);
   assertEquals(updatedKey!.lastUsed! >= before, true);
   assertEquals(updatedKey!.lastUsed! <= after, true);
@@ -58,11 +53,11 @@ Deno.test("recordProxyKeyUsage - marks key as dirty", () => {
   resetState();
 
   const proxyKey = createMockProxyKey({ id: "pk-1" });
-  setCachedProxyKeys(new Map([["pk-1", proxyKey]]));
+  state.cachedProxyKeys = new Map([["pk-1", proxyKey]]);
 
-  assertEquals(dirtyProxyKeyIds.has("pk-1"), false);
+  assertEquals(state.dirtyProxyKeyIds.has("pk-1"), false);
   recordProxyKeyUsage("pk-1");
-  assertEquals(dirtyProxyKeyIds.has("pk-1"), true);
+  assertEquals(state.dirtyProxyKeyIds.has("pk-1"), true);
 });
 
 Deno.test("recordProxyKeyUsage - does nothing for non-existent key", () => {
@@ -70,7 +65,7 @@ Deno.test("recordProxyKeyUsage - does nothing for non-existent key", () => {
 
   // Should not throw
   recordProxyKeyUsage("non-existent");
-  assertEquals(dirtyProxyKeyIds.has("non-existent"), false);
+  assertEquals(state.dirtyProxyKeyIds.has("non-existent"), false);
 });
 
 Deno.test("recordProxyKeyUsage - handles multiple calls", () => {
@@ -80,12 +75,12 @@ Deno.test("recordProxyKeyUsage - handles multiple calls", () => {
     id: "pk-1",
     useCount: 0,
   });
-  setCachedProxyKeys(new Map([["pk-1", proxyKey]]));
+  state.cachedProxyKeys = new Map([["pk-1", proxyKey]]);
 
   recordProxyKeyUsage("pk-1");
   recordProxyKeyUsage("pk-1");
   recordProxyKeyUsage("pk-1");
 
-  const updatedKey = cachedProxyKeys.get("pk-1");
+  const updatedKey = state.cachedProxyKeys.get("pk-1");
   assertEquals(updatedKey?.useCount, 3);
 });

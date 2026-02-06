@@ -12,7 +12,7 @@ import {
   isAbortError,
   safeJsonParse,
 } from "../utils.ts";
-import { cachedActiveKeyIds, keyCooldownUntil } from "../state.ts";
+import { state } from "../state.ts";
 import { isProxyAuthorized, recordProxyKeyUsage } from "../auth.ts";
 import {
   getNextApiKeyFast,
@@ -72,8 +72,8 @@ async function handleProxyEndpoint(req: Request): Promise<Response> {
     }
     if (!apiKeyData) {
       const now = Date.now();
-      const cooldowns = cachedActiveKeyIds
-        .map((id) => keyCooldownUntil.get(id) ?? 0)
+      const cooldowns = state.cachedActiveKeyIds
+        .map((id) => state.keyCooldownUntil.get(id) ?? 0)
         .filter((ms) => ms > now);
       const minCooldownUntil = cooldowns.length > 0
         ? Math.min(...cooldowns)
@@ -84,7 +84,7 @@ async function handleProxyEndpoint(req: Request): Promise<Response> {
 
       return jsonError(
         "没有可用的 API 密钥",
-        cachedActiveKeyIds.length > 0 ? 429 : 500,
+        state.cachedActiveKeyIds.length > 0 ? 429 : 500,
         retryAfterSeconds > 0
           ? { "Retry-After": String(retryAfterSeconds) }
           : undefined,
