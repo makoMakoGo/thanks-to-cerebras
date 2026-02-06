@@ -6,6 +6,7 @@ services:
     volumes:
       - cerebras-kv:/app/data
     restart: unless-stopped
+    stop_grace_period: 10s
 
 volumes:
   cerebras-kv:

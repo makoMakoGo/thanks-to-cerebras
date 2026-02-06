@@ -76,6 +76,11 @@ async function handler(req: Request): Promise<Response> {
     return await handleProxyEndpoint(req);
   }
 
+  // Health check
+  if (req.method === "GET" && path === "/healthz") {
+    return new Response("ok", { status: 200 });
+  }
+
   // Admin panel
   if (path === "/" && req.method === "GET") {
     return await renderAdminPage();
