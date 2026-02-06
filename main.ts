@@ -4,7 +4,11 @@ import { CORS_HEADERS } from "./src/constants.ts";
 import { problemResponse } from "./src/http.ts";
 import { cachedConfig, isDenoDeployment } from "./src/state.ts";
 import { isAdminAuthorized } from "./src/auth.ts";
-import { applyKvFlushInterval, bootstrapCache } from "./src/kv.ts";
+import {
+  applyKvFlushInterval,
+  bootstrapCache,
+  flushDirtyToKv,
+} from "./src/kv.ts";
 import { resolvePort } from "./src/utils.ts";
 
 // Handlers
@@ -90,6 +94,34 @@ console.log(`- 存储: Deno KV`);
 if (import.meta.main) {
   await bootstrapCache();
   applyKvFlushInterval(cachedConfig);
+
+  if (!isDenoDeployment) {
+    const FLUSH_TIMEOUT_MS = 5000;
+
+    const shutdown = async (signal: string) => {
+      console.log(`\n[SHUTDOWN] ${signal} received, flushing dirty data...`);
+      try {
+        await Promise.race([
+          flushDirtyToKv(),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("flush timeout")), FLUSH_TIMEOUT_MS)
+          ),
+        ]);
+        console.log("[SHUTDOWN] flush complete.");
+      } catch (e) {
+        console.error("[SHUTDOWN] flush failed:", e);
+      }
+      Deno.exit(0);
+    };
+
+    try {
+      Deno.addSignalListener("SIGINT", () => shutdown("SIGINT"));
+      Deno.addSignalListener("SIGTERM", () => shutdown("SIGTERM"));
+    } catch {
+      // signal listeners not supported on this platform
+    }
+  }
+
   if (isDenoDeployment) {
     Deno.serve(handler);
   } else {
