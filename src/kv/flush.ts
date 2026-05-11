@@ -5,7 +5,7 @@
 //   totalRequests. These are batched via a periodic timer to avoid
 //   per-request KV overhead on the proxy critical path.
 
-import type { ProxyConfig } from "../types.ts";
+import type { ApiKey, ProxyAuthKey, ProxyConfig } from "../types.ts";
 import { API_KEY_PREFIX, PROXY_KEY_PREFIX } from "../constants.ts";
 import { rebuildActiveKeyIds } from "../api-keys.ts";
 import { rebuildModelPoolCache } from "../models.ts";
@@ -33,6 +33,39 @@ export function applyKvFlushInterval(config: ProxyConfig | null): void {
   );
 }
 
+async function flushApiKeyStats(id: string): Promise<void> {
+  const keyEntry = state.cachedKeysById.get(id);
+  if (!keyEntry) return;
+
+  const key = [...API_KEY_PREFIX, id];
+  const entry = await state.kv.get<ApiKey>(key);
+  const persisted = entry.value;
+  if (persisted === null) return;
+
+  await state.kv.set(key, {
+    ...persisted,
+    useCount: Math.max(persisted.useCount, keyEntry.useCount),
+    lastUsed: Math.max(persisted.lastUsed ?? 0, keyEntry.lastUsed ?? 0) ||
+      undefined,
+  });
+}
+
+async function flushProxyKeyStats(id: string): Promise<void> {
+  const proxyKey = state.cachedProxyKeys.get(id);
+  if (!proxyKey) return;
+
+  const key = [...PROXY_KEY_PREFIX, id];
+  const entry = await state.kv.get<ProxyAuthKey>(key);
+  const persisted = entry.value;
+  if (persisted === null) return;
+
+  await state.kv.set(key, {
+    ...persisted,
+    useCount: Math.max(persisted.useCount, proxyKey.useCount),
+    lastUsed: Math.max(persisted.lastUsed ?? 0, proxyKey.lastUsed ?? 0) ||
+      undefined,
+  });
+}
 export async function flushDirtyToKv(): Promise<void> {
   const now = Date.now();
   for (const [id, until] of state.keyCooldownUntil) {
@@ -63,14 +96,10 @@ export async function flushDirtyToKv(): Promise<void> {
     try {
       const tasks: Promise<unknown>[] = [];
       for (const id of keyIds) {
-        const keyEntry = state.cachedKeysById.get(id);
-        if (!keyEntry) continue;
-        tasks.push(state.kv.set([...API_KEY_PREFIX, id], keyEntry));
+        tasks.push(flushApiKeyStats(id));
       }
       for (const id of proxyKeyIds) {
-        const pk = state.cachedProxyKeys.get(id);
-        if (!pk) continue;
-        tasks.push(state.kv.set([...PROXY_KEY_PREFIX, id], pk));
+        tasks.push(flushProxyKeyStats(id));
       }
       await Promise.all(tasks);
     } catch (error) {

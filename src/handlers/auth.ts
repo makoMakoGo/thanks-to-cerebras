@@ -3,7 +3,7 @@ import {
   createAdminToken,
   deleteAdminToken,
   getAdminPassword,
-  setAdminPassword,
+  setAdminPasswordIfUnset,
   verifyAdminPassword,
   verifyAdminToken,
 } from "../auth.ts";
@@ -11,12 +11,8 @@ import { loginLimiter } from "../rate-limit.ts";
 import { metrics } from "../metrics.ts";
 import type { Router } from "../router.ts";
 
-function getClientIp(req: Request): string {
-  return (
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    req.headers.get("x-real-ip") ||
-    "unknown"
-  );
+function getRateLimitKey(_req: Request): string {
+  return "admin-auth";
 }
 
 async function getAuthStatus(req: Request): Promise<Response> {
@@ -27,8 +23,8 @@ async function getAuthStatus(req: Request): Promise<Response> {
 }
 
 async function setupAuth(req: Request): Promise<Response> {
-  const ip = getClientIp(req);
-  const limit = loginLimiter.check(ip);
+  const key = getRateLimitKey(req);
+  const limit = loginLimiter.check(key);
   if (!limit.allowed) {
     metrics.inc("rate_limit_hits_total", "setup");
     const retryAfter = Math.ceil(limit.retryAfterMs / 1000);
@@ -54,7 +50,13 @@ async function setupAuth(req: Request): Promise<Response> {
         instance: "/api/auth/setup",
       });
     }
-    await setAdminPassword(password);
+    const created = await setAdminPasswordIfUnset(password);
+    if (!created) {
+      return problemResponse("密码已设置", {
+        status: 400,
+        instance: "/api/auth/setup",
+      });
+    }
     const token = await createAdminToken();
     return jsonResponse({ success: true, token });
   } catch (error) {
@@ -67,8 +69,8 @@ async function setupAuth(req: Request): Promise<Response> {
 }
 
 async function loginAuth(req: Request): Promise<Response> {
-  const ip = getClientIp(req);
-  const limit = loginLimiter.check(ip);
+  const key = getRateLimitKey(req);
+  const limit = loginLimiter.check(key);
   if (!limit.allowed) {
     metrics.inc("rate_limit_hits_total", "login");
     const retryAfter = Math.ceil(limit.retryAfterMs / 1000);

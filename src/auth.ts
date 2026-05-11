@@ -13,9 +13,19 @@ export async function getAdminPassword(): Promise<string | null> {
   return entry.value;
 }
 
-export async function setAdminPassword(password: string): Promise<void> {
+export async function setAdminPasswordIfUnset(
+  password: string,
+): Promise<boolean> {
   const hash = await hashPassword(password);
-  await state.kv.set(ADMIN_PASSWORD_KEY, hash);
+  const existing = await state.kv.get<string>(ADMIN_PASSWORD_KEY);
+  if (existing.value !== null) return false;
+
+  const result = await state.kv.atomic()
+    .check(existing)
+    .set(ADMIN_PASSWORD_KEY, hash)
+    .commit();
+
+  return result.ok;
 }
 
 export async function verifyAdminPassword(password: string): Promise<boolean> {

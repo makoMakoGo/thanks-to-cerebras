@@ -1,10 +1,17 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertMatch } from "@std/assert";
 import { AppState, state } from "../state.ts";
 import { createHandler, createRouter } from "../app.ts";
-import { bootstrapCache } from "../kv/flush.ts";
+import { bootstrapCache, flushDirtyToKv } from "../kv/flush.ts";
 import { loginLimiter } from "../rate-limit.ts";
 import { metrics } from "../metrics.ts";
-import { ADMIN_CORS_HEADERS, CORS_HEADERS } from "../constants.ts";
+import {
+  ADMIN_CORS_HEADERS,
+  API_KEY_PREFIX,
+  CORS_HEADERS,
+  DEFAULT_KV_FLUSH_INTERVAL_MS,
+  DEFAULT_MODEL_POOL,
+  PROXY_KEY_PREFIX,
+} from "../constants.ts";
 
 const BASE = "http://localhost";
 
@@ -73,11 +80,12 @@ Deno.test("integration: auth setup → login → logout", async () => {
   assertEquals(setupRes.status, 200);
   const setupBody = await setupRes.json();
   assertEquals(setupBody.success, true);
-  const token = setupBody.token;
+  assertMatch(setupBody.token, /^[0-9a-f-]{36}$/);
+  const setupToken = setupBody.token;
 
   const status2 = await (await handler(
     makeReq("GET", "/api/auth/status", {
-      headers: { "X-Admin-Token": token },
+      headers: { "X-Admin-Token": setupToken },
     }),
   )).json();
   assertEquals(status2.isLoggedIn, true);
@@ -93,6 +101,15 @@ Deno.test("integration: auth setup → login → logout", async () => {
   assertEquals(loginRes.status, 200);
   const loginBody = await loginRes.json();
   assertEquals(loginBody.success, true);
+  assertMatch(loginBody.token, /^[0-9a-f-]{36}$/);
+  const loginToken = loginBody.token;
+
+  const loginStatus = await (await handler(
+    makeReq("GET", "/api/auth/status", {
+      headers: { "X-Admin-Token": loginToken },
+    }),
+  )).json();
+  assertEquals(loginStatus.isLoggedIn, true);
 
   const badLogin = await handler(
     makeReq("POST", "/api/auth/login", { body: { password: "wrong" } }),
@@ -101,15 +118,67 @@ Deno.test("integration: auth setup → login → logout", async () => {
 
   await handler(
     makeReq("POST", "/api/auth/logout", {
-      headers: { "X-Admin-Token": token },
+      headers: { "X-Admin-Token": loginToken },
     }),
   );
   const status3 = await (await handler(
     makeReq("GET", "/api/auth/status", {
-      headers: { "X-Admin-Token": token },
+      headers: { "X-Admin-Token": loginToken },
     }),
   )).json();
   assertEquals(status3.isLoggedIn, false);
+
+  kv.close();
+});
+
+Deno.test("integration: concurrent first-time auth setup creates one admin token", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+
+  const responses = await Promise.all([
+    handler(
+      makeReq("POST", "/api/auth/setup", { body: { password: "first-pass" } }),
+    ),
+    handler(
+      makeReq("POST", "/api/auth/setup", { body: { password: "second-pass" } }),
+    ),
+  ]);
+  const statuses = responses.map((res) => res.status).sort((a, b) => a - b);
+  assertEquals(statuses, [200, 400]);
+
+  const bodies = await Promise.all(responses.map((res) => res.json()));
+  const successBodies = bodies.filter((body) => body.success === true);
+  assertEquals(successBodies.length, 1);
+  assertMatch(successBodies[0].token, /^[0-9a-f-]{36}$/);
+
+  kv.close();
+});
+
+Deno.test("integration: auth rate limit ignores spoofed forwarding headers", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+
+  await handler(
+    makeReq("POST", "/api/auth/setup", { body: { password: "test1234" } }),
+  );
+
+  for (let i = 0; i < 4; i++) {
+    const res = await handler(
+      makeReq("POST", "/api/auth/login", {
+        headers: { "x-forwarded-for": `203.0.113.${i}` },
+        body: { password: "wrong" },
+      }),
+    );
+    assertEquals(res.status, 401);
+  }
+
+  const limited = await handler(
+    makeReq("POST", "/api/auth/login", {
+      headers: { "x-forwarded-for": "203.0.113.99" },
+      body: { password: "wrong" },
+    }),
+  );
+  assertEquals(limited.status, 429);
 
   kv.close();
 });
@@ -190,6 +259,7 @@ Deno.test("integration: proxy key add → list → export → delete", async () 
   assertEquals(addBody.success, true);
   const pkId = addBody.id;
   const rawKey = addBody.key;
+  assertMatch(rawKey, /^cpk_[A-Za-z0-9_-]+$/);
 
   const listRes = await handler(
     makeReq("GET", "/api/proxy-keys", { headers: h }),
@@ -201,6 +271,7 @@ Deno.test("integration: proxy key add → list → export → delete", async () 
   const exportRes = await handler(
     makeReq("GET", `/api/proxy-keys/${pkId}/export`, { headers: h }),
   );
+  assertEquals(exportRes.status, 200);
   const exportBody = await exportRes.json();
   assertEquals(exportBody.key, rawKey);
 
@@ -229,8 +300,8 @@ Deno.test("integration: config get → update", async () => {
   const getRes = await handler(makeReq("GET", "/api/config", { headers: h }));
   assertEquals(getRes.status, 200);
   const getBody = await getRes.json();
-  assertEquals(typeof getBody.kvFlushIntervalMs, "number");
-  assertEquals(typeof getBody.totalRequests, "number");
+  assertEquals(getBody.kvFlushIntervalMs, DEFAULT_KV_FLUSH_INTERVAL_MS);
+  assertEquals(getBody.totalRequests, 0);
 
   const updateRes = await handler(
     makeReq("PATCH", "/api/config", {
@@ -243,10 +314,87 @@ Deno.test("integration: config get → update", async () => {
   assertEquals(updateBody.success, true);
   assertEquals(updateBody.kvFlushIntervalMs, 5000);
 
+  const persistedRes = await handler(
+    makeReq("GET", "/api/config", { headers: h }),
+  );
+  assertEquals(persistedRes.status, 200);
+  const persistedBody = await persistedRes.json();
+  assertEquals(persistedBody.kvFlushIntervalMs, 5000);
+
   if (state.kvFlushTimerId !== null) {
     clearInterval(state.kvFlushTimerId);
     state.kvFlushTimerId = null;
   }
+
+  kv.close();
+});
+
+Deno.test("integration: dirty stats flush does not resurrect deleted API keys", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  const token = await setupAuth(handler);
+  const h = { "X-Admin-Token": token };
+
+  const addRes = await handler(
+    makeReq("POST", "/api/keys", {
+      headers: h,
+      body: { key: "sk-race-delete-api" },
+    }),
+  );
+  const { id } = await addRes.json();
+  const cached = state.cachedKeysById.get(id);
+  if (cached === undefined) throw new Error("added API key missing from cache");
+  cached.useCount = 7;
+  cached.lastUsed = 12345;
+  state.dirtyKeyIds.add(id);
+
+  const delRes = await handler(
+    makeReq("DELETE", `/api/keys/${id}`, { headers: h }),
+  );
+  assertEquals(delRes.status, 200);
+  state.cachedKeysById.set(id, cached);
+  state.dirtyKeyIds.add(id);
+
+  await flushDirtyToKv();
+
+  const entry = await state.kv.get([...API_KEY_PREFIX, id]);
+  assertEquals(entry.value, null);
+
+  kv.close();
+});
+
+Deno.test("integration: dirty stats flush does not resurrect deleted proxy keys", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  const token = await setupAuth(handler);
+  const h = { "X-Admin-Token": token };
+
+  const addRes = await handler(
+    makeReq("POST", "/api/proxy-keys", {
+      headers: h,
+      body: { name: "race delete" },
+    }),
+  );
+  const { id } = await addRes.json();
+  const cached = state.cachedProxyKeys.get(id);
+  if (cached === undefined) {
+    throw new Error("added proxy key missing from cache");
+  }
+  cached.useCount = 4;
+  cached.lastUsed = 12345;
+  state.dirtyProxyKeyIds.add(id);
+
+  const delRes = await handler(
+    makeReq("DELETE", `/api/proxy-keys/${id}`, { headers: h }),
+  );
+  assertEquals(delRes.status, 200);
+  state.cachedProxyKeys.set(id, cached);
+  state.dirtyProxyKeyIds.add(id);
+
+  await flushDirtyToKv();
+
+  const entry = await state.kv.get([...PROXY_KEY_PREFIX, id]);
+  assertEquals(entry.value, null);
 
   kv.close();
 });
@@ -443,8 +591,7 @@ Deno.test("integration: models GET and PUT", async () => {
   const getRes = await handler(makeReq("GET", "/api/models", { headers: h }));
   assertEquals(getRes.status, 200);
   const getBody = await getRes.json();
-  assertEquals(Array.isArray(getBody.models), true);
-  assertEquals(getBody.models.length > 0, true);
+  assertEquals(getBody.models, DEFAULT_MODEL_POOL);
 
   const putRes = await handler(
     makeReq("PUT", "/api/models", {
@@ -534,11 +681,12 @@ Deno.test("integration: /api/metrics returns counters (requires auth)", async ()
   const handler = buildHandler();
   const token = await setupAuth(handler);
 
-  await handler(
+  const proxyRes = await handler(
     makeReq("POST", "/v1/chat/completions", {
       body: { messages: [{ role: "user", content: "hi" }] },
     }),
   );
+  assertEquals(proxyRes.status, 500);
 
   const res = await handler(
     makeReq("GET", "/api/metrics", {
@@ -547,8 +695,7 @@ Deno.test("integration: /api/metrics returns counters (requires auth)", async ()
   );
   assertEquals(res.status, 200);
   const body = await res.json();
-  assertEquals(typeof body, "object");
-  assertEquals(typeof body.proxy_requests_total, "object");
+  assertEquals(body.proxy_requests_total.no_key, 1);
 
   const noAuth = await handler(makeReq("GET", "/api/metrics"));
   assertEquals(noAuth.status, 401);

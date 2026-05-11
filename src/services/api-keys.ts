@@ -1,8 +1,4 @@
-import {
-  CEREBRAS_API_URL,
-  FALLBACK_MODEL,
-  UPSTREAM_TEST_TIMEOUT_MS,
-} from "../constants.ts";
+import { CEREBRAS_API_URL, UPSTREAM_TEST_TIMEOUT_MS } from "../constants.ts";
 import {
   fetchWithTimeout,
   getErrorMessage,
@@ -23,9 +19,10 @@ export async function testKey(
     return { success: false, status: "invalid", error: "密钥不存在" };
   }
 
-  const testModel = state.cachedModelPool.length > 0
-    ? state.cachedModelPool[0]
-    : FALLBACK_MODEL;
+  if (state.cachedModelPool.length === 0) {
+    return { success: false, status: "error", error: "模型池为空" };
+  }
+  const testModel = state.cachedModelPool[0];
 
   try {
     const response = await fetchWithTimeout(

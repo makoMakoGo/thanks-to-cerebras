@@ -45,19 +45,30 @@ export async function refreshModelCatalog(): Promise<ModelCatalog> {
       throw new Error(`模型目录拉取失败：HTTP ${response.status}${suffix}`);
     }
 
-    const data = await response.json().catch(() => ({}));
-    const rawModels = (data as { data?: unknown })?.data;
+    let data: unknown;
+    try {
+      data = await response.json();
+    } catch (error) {
+      throw new Error(
+        `模型目录响应不是有效 JSON：${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
 
-    const ids = Array.isArray(rawModels)
-      ? rawModels
-        .map((m) => {
-          if (!m || typeof m !== "object") return "";
-          if (!("id" in m)) return "";
-          const id = (m as { id?: unknown }).id;
-          return typeof id === "string" ? id.trim() : "";
-        })
-        .filter((id) => id.length > 0)
-      : [];
+    const rawModels = (data as { data?: unknown }).data;
+    if (!Array.isArray(rawModels)) {
+      throw new Error("模型目录响应缺少 data 数组");
+    }
+
+    const ids = rawModels
+      .map((m) => {
+        if (!m || typeof m !== "object") return "";
+        if (!("id" in m)) return "";
+        const id = (m as { id?: unknown }).id;
+        return typeof id === "string" ? id.trim() : "";
+      })
+      .filter((id) => id.length > 0);
 
     const seen = new Set<string>();
     const models: string[] = [];
