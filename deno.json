@@ -17,7 +17,8 @@
     "test:coverage": "deno test --allow-net --allow-env --allow-read --allow-write --coverage=coverage",
     "check": "deno check main.ts src",
     "lint": "deno lint main.ts src",
-    "fmt:check": "deno fmt --check main.ts src"
+    "fmt:check": "deno fmt --check main.ts src",
+    "docstring:coverage": "deno run --allow-read scripts/docstring-coverage.mjs --threshold 80"
   },
   "imports": {
     "@std/assert": "jsr:@std/assert@^1.0.18"

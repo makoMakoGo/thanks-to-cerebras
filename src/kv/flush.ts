@@ -21,6 +21,9 @@ import { metrics } from "../metrics.ts";
 
 export { resolveKvFlushIntervalMs } from "./config.ts";
 
+/**
+ * Applies the configured KV flush interval by replacing the existing timer.
+ */
 export function applyKvFlushInterval(config: ProxyConfig | null): void {
   state.kvFlushIntervalMsEffective = resolveKvFlushIntervalMs(config);
 
@@ -33,6 +36,10 @@ export function applyKvFlushInterval(config: ProxyConfig | null): void {
   );
 }
 
+/**
+ * Merges cached API-key usage counters without overwriting CRUD changes.
+ * A concurrent delete wins permanently; a concurrent update is retried later.
+ */
 async function flushApiKeyStats(id: string): Promise<void> {
   const keyEntry = state.cachedKeysById.get(id);
   if (!keyEntry) return;
@@ -42,14 +49,30 @@ async function flushApiKeyStats(id: string): Promise<void> {
   const persisted = entry.value;
   if (persisted === null) return;
 
-  await state.kv.set(key, {
-    ...persisted,
-    useCount: Math.max(persisted.useCount, keyEntry.useCount),
-    lastUsed: Math.max(persisted.lastUsed ?? 0, keyEntry.lastUsed ?? 0) ||
-      undefined,
-  });
+  // CAS prevents a stale stats write from recreating or overwriting a key that
+  // changed after the read.
+  const result = await state.kv.atomic()
+    .check(entry)
+    .set(key, {
+      ...persisted,
+      useCount: Math.max(persisted.useCount, keyEntry.useCount),
+      lastUsed: Math.max(persisted.lastUsed ?? 0, keyEntry.lastUsed ?? 0) ||
+        undefined,
+    })
+    .commit();
+
+  if (result.ok) return;
+
+  const latest = await state.kv.get<ApiKey>(key);
+  if (latest.value !== null) {
+    state.dirtyKeyIds.add(id);
+  }
 }
 
+/**
+ * Merges cached proxy-key usage counters without overwriting CRUD changes.
+ * A concurrent delete wins permanently; a concurrent update is retried later.
+ */
 async function flushProxyKeyStats(id: string): Promise<void> {
   const proxyKey = state.cachedProxyKeys.get(id);
   if (!proxyKey) return;
@@ -59,13 +82,26 @@ async function flushProxyKeyStats(id: string): Promise<void> {
   const persisted = entry.value;
   if (persisted === null) return;
 
-  await state.kv.set(key, {
-    ...persisted,
-    useCount: Math.max(persisted.useCount, proxyKey.useCount),
-    lastUsed: Math.max(persisted.lastUsed ?? 0, proxyKey.lastUsed ?? 0) ||
-      undefined,
-  });
+  const result = await state.kv.atomic()
+    .check(entry)
+    .set(key, {
+      ...persisted,
+      useCount: Math.max(persisted.useCount, proxyKey.useCount),
+      lastUsed: Math.max(persisted.lastUsed ?? 0, proxyKey.lastUsed ?? 0) ||
+        undefined,
+    })
+    .commit();
+
+  if (result.ok) return;
+
+  const latest = await state.kv.get<ProxyAuthKey>(key);
+  if (latest.value !== null) {
+    state.dirtyProxyKeyIds.add(id);
+  }
 }
+/**
+ * Flushes batched hot-path counters to KV without overwriting immediate CRUD writes.
+ */
 export async function flushDirtyToKv(): Promise<void> {
   const now = Date.now();
   for (const [id, until] of state.keyCooldownUntil) {
@@ -134,6 +170,9 @@ export async function flushDirtyToKv(): Promise<void> {
   }
 }
 
+/**
+ * Loads persisted config and key records into the hot-path in-memory caches.
+ */
 export async function bootstrapCache(): Promise<void> {
   state.cachedConfig = await kvGetConfig();
   const keys = await kvGetAllKeys();

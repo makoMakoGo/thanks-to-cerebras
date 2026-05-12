@@ -73,8 +73,28 @@ Deno.test("testKey - does not mark keys active when configured model pool is emp
     status: "error",
     error: "模型池为空",
   });
+  // Empty model configuration must not reclassify the key itself.
   const keyEntry = state.cachedKeysById.get(addResult.id);
   assertEquals(keyEntry?.status, "active");
 
   kv.close();
+});
+
+Deno.test("refreshModelCatalog - rejects null JSON body", async () => {
+  const kv = await setupKv();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = () =>
+    Promise.resolve(new Response("null", { status: 200 }));
+
+  try {
+    await assertRejects(
+      () => refreshModelCatalog(),
+      Error,
+      "模型目录响应格式错误",
+    );
+    assertEquals(state.cachedModelCatalog, null);
+  } finally {
+    globalThis.fetch = originalFetch;
+    kv.close();
+  }
 });

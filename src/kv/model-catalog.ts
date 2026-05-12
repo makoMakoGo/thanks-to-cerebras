@@ -10,6 +10,9 @@ import { normalizeModelPool, rebuildModelPoolCache } from "../models.ts";
 import { state } from "../state.ts";
 import { kvUpdateConfig } from "./config.ts";
 
+/**
+ * Returns whether a model catalog is within the configured cache TTL.
+ */
 export function isModelCatalogFresh(
   catalog: ModelCatalog,
   now: number,
@@ -19,11 +22,17 @@ export function isModelCatalogFresh(
   );
 }
 
+/**
+ * Reads the cached model catalog from KV without refreshing upstream data.
+ */
 export async function kvGetModelCatalog(): Promise<ModelCatalog | null> {
   const entry = await state.kv.get<ModelCatalog>(MODEL_CATALOG_KEY);
   return entry.value ?? null;
 }
 
+/**
+ * Fetches and caches the upstream model catalog only after strict payload validation.
+ */
 export async function refreshModelCatalog(): Promise<ModelCatalog> {
   if (state.modelCatalogFetchInFlight) {
     return await state.modelCatalogFetchInFlight;
@@ -54,6 +63,11 @@ export async function refreshModelCatalog(): Promise<ModelCatalog> {
           error instanceof Error ? error.message : String(error)
         }`,
       );
+    }
+
+    // Guard against valid JSON primitives (null, scalar) before property access.
+    if (typeof data !== "object" || data === null) {
+      throw new Error("模型目录响应格式错误");
     }
 
     const rawModels = (data as { data?: unknown }).data;
@@ -101,6 +115,9 @@ export async function refreshModelCatalog(): Promise<ModelCatalog> {
   return await promise;
 }
 
+/**
+ * Removes an unavailable model from the configured pool and resets rotation.
+ */
 export async function removeModelFromPool(
   model: string,
   reason: string,
