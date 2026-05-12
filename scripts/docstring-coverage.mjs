@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util";
 import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 const { values } = parseArgs({
   options: {
@@ -21,8 +21,11 @@ if (!Number.isFinite(threshold) || threshold < 0 || threshold > 100) {
   throw new Error(`Invalid docstring coverage threshold: ${values.threshold}`);
 }
 
-const functionPattern =
-  /(?:^|\n)export\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/g;
+const exportedFunctionPatterns = [
+  /(?:^|\n)export\s+(?:default\s+)?(?:async\s+)?function(?:\s*\*)?(?:\s+([A-Za-z_$][\w$]*))?\s*\(/g,
+  /(?:^|\n)export\s+(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function(?:\s*\*)?(?:\s+[A-Za-z_$][\w$]*)?\s*\(|(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>)/g,
+  /(?:^|\n)export\s+default\s+(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>/g,
+];
 
 async function collectTsFiles(path) {
   const stat = await Deno.stat(path);
@@ -55,32 +58,44 @@ function hasDocComment(source, index) {
     );
 }
 
-function countMatches(source, pattern, predicate) {
+function countMatches(source, pattern) {
   let total = 0;
   let documented = 0;
   for (const match of source.matchAll(pattern)) {
-    if (predicate !== undefined && !predicate(match)) continue;
     total += 1;
     if (hasDocComment(source, match.index)) documented += 1;
   }
   return { total, documented };
 }
 
+function missingName(match) {
+  return match[1] ?? "default";
+}
+
 let total = 0;
 let documented = 0;
 const missing = [];
 
-for (const file of (await Promise.all(roots.map(collectTsFiles))).flat()) {
-  const source = await readFile(file, "utf8");
-  const functions = countMatches(source, functionPattern);
-  total += functions.total;
-  documented += functions.documented;
+const files = [
+  ...new Set(
+    (await Promise.all(roots.map(collectTsFiles))).flat().map((file) =>
+      resolve(file)
+    ),
+  ),
+];
 
-  for (const match of source.matchAll(functionPattern)) {
-    const name = match[1];
-    if (!hasDocComment(source, match.index)) {
-      const line = source.slice(0, match.index).split("\n").length;
-      missing.push(`${file}:${line} ${name}`);
+for (const file of files) {
+  const source = await readFile(file, "utf8");
+  for (const pattern of exportedFunctionPatterns) {
+    const functions = countMatches(source, pattern);
+    total += functions.total;
+    documented += functions.documented;
+
+    for (const match of source.matchAll(pattern)) {
+      if (!hasDocComment(source, match.index)) {
+        const line = source.slice(0, match.index).split("\n").length;
+        missing.push(`${file}:${line} ${missingName(match)}`);
+      }
     }
   }
 }
