@@ -1,6 +1,7 @@
 # 本地开发指南
 
-> 📖 相关文档：[README](../README.md) | [部署指南](GUIDE.md) | [API 文档](API.md)
+> 📖 相关文档：[README](../README.md) | [部署指南](GUIDE.md) |
+> [API 文档](API.md)
 
 ## 环境要求
 
@@ -33,7 +34,7 @@ deno --version
 
 ```bash
 # 克隆仓库
-git clone https://github.com/zhu-jl18/thanks-to-cerebras.git
+git clone https://github.com/makoMakoGo/thanks-to-cerebras.git
 # 或 clone 你的 fork：https://github.com/<your-username>/thanks-to-cerebras.git
 cd thanks-to-cerebras
 
@@ -45,16 +46,17 @@ deno task dev
 
 ## deno task 命令
 
-| 命令 | 说明 |
-|------|------|
-| `deno task dev` | 启动开发服务器 |
-| `deno task start` | 启动生产服务器 |
-| `deno task test` | 运行全部测试（仓库内全部 `*_test.ts`） |
-| `deno task test:unit` | 运行单元测试 |
-| `deno task test:coverage` | 运行测试并生成覆盖率报告 |
-| `deno task check` | 类型检查 |
-| `deno task lint` | 代码风格检查 |
-| `deno task fmt:check` | 格式检查 |
+| 命令                           | 说明                                   |
+| ------------------------------ | -------------------------------------- |
+| `deno task dev`                | 启动开发服务器                         |
+| `deno task start`              | 启动生产服务器                         |
+| `deno task test`               | 运行全部测试（仓库内全部 `*_test.ts`） |
+| `deno task test:unit`          | 运行单元测试                           |
+| `deno task test:coverage`      | 运行测试并生成覆盖率报告               |
+| `deno task check`              | 类型检查                               |
+| `deno task lint`               | 代码风格检查                           |
+| `deno task fmt:check`          | 格式检查                               |
+| `deno task docstring:coverage` | 检查导出函数文档注释覆盖率             |
 
 ## 本地 KV 存储
 
@@ -79,16 +81,19 @@ KV_PATH=/custom/path deno task dev
 ├── deno.json            # Deno 配置
 ├── src/
 │   ├── state.ts         # 全局状态与 KV 初始化
-│   ├── kv.ts            # KV 操作封装
 │   ├── auth.ts          # 鉴权逻辑
 │   ├── api-keys.ts      # API 密钥管理
 │   ├── models.ts        # 模型池管理
-│   ├── http.ts          # HTTP 请求工具
+│   ├── http.ts          # HTTP 响应工具
 │   ├── crypto.ts        # 加密工具
 │   ├── keys.ts          # 密钥生成
 │   ├── utils.ts         # 通用工具函数
 │   ├── constants.ts     # 常量定义
 │   ├── types.ts         # TypeScript 类型
+│   ├── router.ts        # 路由匹配
+│   ├── rate-limit.ts    # 登录限流
+│   ├── kv/              # KV 读写与刷盘
+│   ├── services/        # 业务服务
 │   ├── handlers/        # HTTP 请求处理器
 │   │   ├── proxy.ts     # 代理请求
 │   │   ├── auth.ts      # 鉴权接口
@@ -97,8 +102,9 @@ KV_PATH=/custom/path deno task dev
 │   │   ├── proxy-keys.ts# 代理密钥接口
 │   │   └── models.ts    # 模型接口
 │   ├── ui/              # 管理面板
-│   │   ├── admin.ts     # 面板路由
-│   │   └── admin_page.ts# 面板 HTML
+│   │   ├── admin.ts     # 面板导出
+│   │   ├── admin.html   # 面板模板
+│   │   └── admin_page.ts# 面板渲染
 │   └── __tests__/       # 单元测试
 └── docs/                # 文档
 ```
@@ -133,7 +139,8 @@ KV_PATH=/custom/path deno task dev
 
 ## 推荐 VS Code 扩展
 
-- [Deno](https://marketplace.visualstudio.com/items?itemName=denoland.vscode-deno) - Deno 语言支持
+- [Deno](https://marketplace.visualstudio.com/items?itemName=denoland.vscode-deno) -
+  Deno 语言支持
 
 在项目根目录创建 `.vscode/settings.json`：
 

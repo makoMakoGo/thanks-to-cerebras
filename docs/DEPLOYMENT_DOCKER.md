@@ -1,11 +1,12 @@
 # Docker 部署指南
 
-> 📖 相关文档：[README](../README.md) | [VPS 部署](DEPLOYMENT_VPS.md) | [Deno Deploy 部署](GUIDE.md)
+> 📖 相关文档：[README](../README.md) | [VPS 部署](DEPLOYMENT_VPS.md) |
+> [Deno Deploy 部署](GUIDE.md)
 
 ## 快速开始
 
 ```bash
-git clone https://github.com/zhu-jl18/thanks-to-cerebras.git
+git clone https://github.com/makoMakoGo/thanks-to-cerebras.git
 # 或 clone 你的 fork：https://github.com/<your-username>/thanks-to-cerebras.git
 cd thanks-to-cerebras
 docker compose up -d
@@ -21,7 +22,8 @@ Docker 端口映射格式为：
 <宿主机端口>:<容器端口>
 ```
 
-本项目容器内默认监听 8339（可通过 `PORT` 调整，但通常不需要）。最常见的做法是只改“宿主机端口”，例如：
+本项目容器内默认监听 8339（可通过 `PORT`
+调整，但通常不需要）。最常见的做法是只改“宿主机端口”，例如：
 
 ```yaml
 ports:

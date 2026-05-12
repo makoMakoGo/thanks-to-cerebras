@@ -621,6 +621,33 @@ Deno.test("integration: models GET and PUT", async () => {
   kv.close();
 });
 
+Deno.test("integration: model catalog errors do not expose stack traces", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  const token = await setupAuth(handler);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = () => {
+    throw new Error("database password leaked");
+  };
+
+  try {
+    const res = await handler(
+      makeReq("GET", "/api/models/catalog", {
+        headers: { "X-Admin-Token": token },
+      }),
+    );
+    const bodyText = await res.text();
+
+    assertEquals(res.status, 502);
+    assertEquals(bodyText.includes("database password leaked"), false);
+    assertEquals(bodyText.includes("Error:"), false);
+    assertEquals(bodyText.includes("at "), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    kv.close();
+  }
+});
+
 // ─── CORS: OPTIONS preflight ───
 
 Deno.test("integration: OPTIONS returns correct CORS headers", async () => {

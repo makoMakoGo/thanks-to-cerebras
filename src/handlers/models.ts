@@ -22,10 +22,11 @@ async function getModelCatalog(): Promise<Response> {
       models: catalog.models,
     });
   } catch (error) {
-    return problemResponse(
-      error instanceof Error ? error.message : "无法获取模型目录",
-      { status: 502, instance: "/api/models/catalog" },
-    );
+    console.error("[MODELS] catalog fetch error:", error);
+    return problemResponse("无法获取模型目录", {
+      status: 502,
+      instance: "/api/models/catalog",
+    });
   }
 }
 
@@ -41,10 +42,11 @@ async function refreshCatalog(): Promise<Response> {
       models: catalog.models,
     });
   } catch (error) {
-    return problemResponse(
-      error instanceof Error ? error.message : "目录刷新失败",
-      { status: 502, instance: "/api/models/catalog/refresh" },
-    );
+    console.error("[MODELS] catalog refresh error:", error);
+    return problemResponse("目录刷新失败", {
+      status: 502,
+      instance: "/api/models/catalog/refresh",
+    });
   }
 }
 

@@ -1,6 +1,6 @@
 import { MAX_PROXY_KEYS } from "../constants.ts";
 import { jsonResponse, problemResponse } from "../http.ts";
-import { getErrorMessage, maskKey } from "../utils.ts";
+import { maskKey } from "../utils.ts";
 import {
   kvAddProxyKey,
   kvDeleteProxyKey,
@@ -39,7 +39,8 @@ async function createProxyKey(req: Request): Promise<Response> {
     }
     return jsonResponse(result, { status: 201 });
   } catch (error) {
-    return problemResponse(getErrorMessage(error), {
+    console.error("[PROXY-KEYS] create key error:", error);
+    return problemResponse("创建失败", {
       status: 400,
       instance: "/api/proxy-keys",
     });

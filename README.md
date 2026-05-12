@@ -38,7 +38,8 @@
   - 自动切换模型，进一步分散负载
   - 支持配置多个模型，请求时自动切换到池中下一个模型
   - 支持从 Cerebras public models 拉取“模型目录”，在面板勾选生成模型池
-- 若遇到上游 `model_not_found` 会把该模型从模型池移除并跳过，同时尝试下一个模型（最多 3 次）
+- 若遇到上游 `model_not_found`
+  会把该模型从模型池移除并跳过，同时尝试下一个模型（最多 3 次）
   - 对外暴露统一模型名 `cerebras-translator`
 - Web 管理面板
   - 管理面板需要登录访问，确保数据安全
@@ -64,13 +65,15 @@
 
 ## Get Started
 
-1. **获取 Cerebras Key**：访问 [Cerebras 官网](https://www.cerebras.ai/) 注册获取
+1. **获取 Cerebras Key**：访问 [Cerebras 官网](https://www.cerebras.ai/)
+   注册获取
 
 2. **部署到 Deno Deploy**：
    1. 点击本页右上角 **Fork** 按钮，fork 到你的 GitHub 账号
    2. 打开 [Deno Deploy 控制台](https://console.deno.com/)，创建新项目
    3. 选择你 fork 的仓库，入口文件选 `main.ts`，部署
-   4. **关联 KV 数据库**（必须）：详见 [部署指南](docs/GUIDE.md#2-创建并关联-kv-数据库必须)
+   4. **关联 KV 数据库**（必须）：详见
+      [部署指南](docs/GUIDE.md#2-创建并关联-kv-数据库必须)
 
 3. **首次配置**：访问部署地址，设置管理密码，添加 API 密钥
 
@@ -83,7 +86,8 @@
   <img src="image/配置说明2.png" alt="沉浸式翻译配置" width="70%">
 </div>
 
-📖 其他可选部署方式：[部署指南](docs/GUIDE.md) | [docker 部署](docs/DEPLOYMENT_DOCKER.md) | [deno cli 部署](docs/DEPLOYMENT_VPS.md)
+📖 其他可选部署方式：[部署指南](docs/GUIDE.md) |
+[Docker 部署](docs/DEPLOYMENT_DOCKER.md) | [VPS 部署](docs/DEPLOYMENT_VPS.md)
 
 ## Documentation
 
@@ -131,8 +135,8 @@ deno run --allow-net --allow-env --allow-read --allow-write main.ts
 
 默认监听 8339 端口，可通过环境变量 `PORT` 更改（例：`PORT=9001`）。
 
-本地 KV 数据默认存储在 `src/.deno-kv-local/kv.sqlite3`，可通过环境变量
-`KV_PATH` 指定目录（例：`KV_PATH=./data`）。
+本地 KV 数据默认存储在 `src/.deno-kv-local/kv.sqlite3`，可通过环境变量 `KV_PATH`
+指定目录（例：`KV_PATH=./data`）。
 
 ## Acknowledgments
 

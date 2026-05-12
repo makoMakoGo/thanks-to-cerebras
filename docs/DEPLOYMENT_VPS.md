@@ -1,6 +1,7 @@
 # VPS 部署指南
 
-> 📖 相关文档：[README](../README.md) | [Docker 部署](DEPLOYMENT_DOCKER.md) | [Deno Deploy 部署](GUIDE.md)
+> 📖 相关文档：[README](../README.md) | [Docker 部署](DEPLOYMENT_DOCKER.md) |
+> [Deno Deploy 部署](GUIDE.md)
 
 ## 安装 Deno（推荐：系统级）
 
@@ -22,7 +23,7 @@ deno --version
 ## 部署（前台运行用于验证）
 
 ```bash
-git clone https://github.com/zhu-jl18/thanks-to-cerebras.git
+git clone https://github.com/makoMakoGo/thanks-to-cerebras.git
 # 或 clone 你的 fork：https://github.com/<your-username>/thanks-to-cerebras.git
 cd thanks-to-cerebras
 deno task start
@@ -58,7 +59,7 @@ sudo useradd -r -m -d /opt/cerebras-proxy -s /usr/sbin/nologin cerebras-proxy
 sudo mkdir -p /opt/cerebras-proxy/app /var/lib/cerebras-proxy
 sudo chown -R cerebras-proxy:cerebras-proxy /opt/cerebras-proxy /var/lib/cerebras-proxy
 
-sudo -u cerebras-proxy git clone https://github.com/zhu-jl18/thanks-to-cerebras.git /opt/cerebras-proxy/app
+sudo -u cerebras-proxy git clone https://github.com/makoMakoGo/thanks-to-cerebras.git /opt/cerebras-proxy/app
 # 或 clone 你的 fork：https://github.com/<your-username>/thanks-to-cerebras.git
 ```
 
