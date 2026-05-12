@@ -13,12 +13,13 @@ import type { Router } from "../router.ts";
 async function getModelCatalog(): Promise<Response> {
   try {
     const { catalog, stale, lastError } = await getCatalogData();
+    if (lastError) console.error("[MODELS] stale catalog error:", lastError);
     return jsonResponse({
       source: catalog.source,
       fetchedAt: catalog.fetchedAt,
       ttlMs: MODEL_CATALOG_TTL_MS,
       stale,
-      ...(lastError ? { lastError } : {}),
+      ...(lastError ? { lastError: "获取模型目录时发生错误" } : {}),
       models: catalog.models,
     });
   } catch (error) {
@@ -33,12 +34,13 @@ async function getModelCatalog(): Promise<Response> {
 async function refreshCatalog(): Promise<Response> {
   try {
     const { catalog, stale, lastError } = await forceRefreshCatalog();
+    if (lastError) console.error("[MODELS] stale refresh error:", lastError);
     return jsonResponse({
       source: catalog.source,
       fetchedAt: catalog.fetchedAt,
       ttlMs: MODEL_CATALOG_TTL_MS,
       stale,
-      ...(lastError ? { lastError } : {}),
+      ...(lastError ? { lastError: "刷新模型目录时发生错误" } : {}),
       models: catalog.models,
     });
   } catch (error) {

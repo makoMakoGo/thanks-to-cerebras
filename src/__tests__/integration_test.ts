@@ -289,6 +289,34 @@ Deno.test("integration: proxy key add → list → export → delete", async () 
   kv.close();
 });
 
+Deno.test("integration: proxy key creation errors do not expose stack traces", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  const token = await setupAuth(handler);
+  const originalSet = state.kv.set;
+  state.kv.set = (() => {
+    throw new Error("database password leaked");
+  }) as typeof state.kv.set;
+
+  try {
+    const res = await handler(
+      makeReq("POST", "/api/proxy-keys", {
+        headers: { "X-Admin-Token": token },
+        body: { name: "leak-check" },
+      }),
+    );
+    const bodyText = await res.text();
+
+    assertEquals(res.status, 400);
+    assertEquals(bodyText.includes("database password leaked"), false);
+    assertEquals(bodyText.includes("Error:"), false);
+    assertEquals(bodyText.includes("at "), false);
+  } finally {
+    state.kv.set = originalSet;
+    kv.close();
+  }
+});
+
 // ─── Config ───
 
 Deno.test("integration: config get → update", async () => {
@@ -633,6 +661,103 @@ Deno.test("integration: model catalog errors do not expose stack traces", async 
   try {
     const res = await handler(
       makeReq("GET", "/api/models/catalog", {
+        headers: { "X-Admin-Token": token },
+      }),
+    );
+    const bodyText = await res.text();
+
+    assertEquals(res.status, 502);
+    assertEquals(bodyText.includes("database password leaked"), false);
+    assertEquals(bodyText.includes("Error:"), false);
+    assertEquals(bodyText.includes("at "), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    kv.close();
+  }
+});
+
+Deno.test("integration: stale model catalog errors do not expose stack traces", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  const token = await setupAuth(handler);
+  state.cachedModelCatalog = {
+    source: "cerebras-public",
+    fetchedAt: Date.now() - 7 * 60 * 60 * 1000,
+    models: ["cached-model"],
+  };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = () => {
+    throw new Error("database password leaked");
+  };
+
+  try {
+    const res = await handler(
+      makeReq("GET", "/api/models/catalog", {
+        headers: { "X-Admin-Token": token },
+      }),
+    );
+    const bodyText = await res.text();
+    const body = JSON.parse(bodyText);
+
+    assertEquals(res.status, 200);
+    assertEquals(body.stale, true);
+    assertEquals(body.lastError, "获取模型目录时发生错误");
+    assertEquals(bodyText.includes("database password leaked"), false);
+    assertEquals(bodyText.includes("Error:"), false);
+    assertEquals(bodyText.includes("at "), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    kv.close();
+  }
+});
+
+Deno.test("integration: stale catalog refresh errors do not expose stack traces", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  const token = await setupAuth(handler);
+  state.cachedModelCatalog = {
+    source: "cerebras-public",
+    fetchedAt: Date.now() - 7 * 60 * 60 * 1000,
+    models: ["cached-model"],
+  };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = () => {
+    throw new Error("database password leaked");
+  };
+
+  try {
+    const res = await handler(
+      makeReq("POST", "/api/models/catalog/refresh", {
+        headers: { "X-Admin-Token": token },
+      }),
+    );
+    const bodyText = await res.text();
+    const body = JSON.parse(bodyText);
+
+    assertEquals(res.status, 200);
+    assertEquals(body.stale, true);
+    assertEquals(body.lastError, "刷新模型目录时发生错误");
+    assertEquals(bodyText.includes("database password leaked"), false);
+    assertEquals(bodyText.includes("Error:"), false);
+    assertEquals(bodyText.includes("at "), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    kv.close();
+  }
+});
+
+Deno.test("integration: catalog refresh errors do not expose stack traces", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  const token = await setupAuth(handler);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = () => {
+    throw new Error("database password leaked");
+  };
+
+  try {
+    const res = await handler(
+      makeReq("POST", "/api/models/catalog/refresh", {
         headers: { "X-Admin-Token": token },
       }),
     );
