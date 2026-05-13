@@ -5,7 +5,7 @@
 ## 0. 约定
 
 - Base URL：`https://<your-project>.deno.dev`
-- 所有接口默认支持 CORS。
+- 对外代理接口（`/v1/*`）支持开放 CORS（`Access-Control-Allow-Origin: *`）；管理接口（`/api/*`）的 OPTIONS 预检不返回 `Access-Control-Allow-Origin`，浏览器跨域请求会被拦截。
 - `OPTIONS` 预检请求统一返回 `204`。
 - JSON 响应默认带 `Cache-Control: no-store`（用于避免缓存敏感数据/统计）。
 
@@ -20,6 +20,7 @@
 
 - Header：`X-Admin-Token: <token>`
 - token 获取方式见 `/api/auth/login` / `/api/auth/setup`
+- token 有效期默认 7 天（服务端过期后需重新登录）
 
 ### 1.2 代理 API（OpenAI 兼容入口）
 
