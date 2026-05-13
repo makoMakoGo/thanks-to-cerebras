@@ -240,6 +240,44 @@ Deno.test("integration: API key add → list → delete", async () => {
   kv.close();
 });
 
+Deno.test("integration: API key test errors do not expose stack traces", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  const token = await setupAuth(handler);
+  const addRes = await handler(
+    makeReq("POST", "/api/keys", {
+      headers: { "X-Admin-Token": token },
+      body: { key: "sk-leak-test" },
+    }),
+  );
+  const { id } = await addRes.json();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = () => {
+    throw new Error("database password leaked");
+  };
+
+  try {
+    const res = await handler(
+      makeReq("POST", `/api/keys/${id}/test`, {
+        headers: { "X-Admin-Token": token },
+      }),
+    );
+    const bodyText = await res.text();
+    const body = JSON.parse(bodyText);
+
+    assertEquals(res.status, 200);
+    assertEquals(body.success, false);
+    assertEquals(body.status, "inactive");
+    assertEquals(body.error, "密钥测试失败");
+    assertEquals(bodyText.includes("database password leaked"), false);
+    assertEquals(bodyText.includes("Error:"), false);
+    assertEquals(bodyText.includes("at "), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    kv.close();
+  }
+});
+
 // ─── Proxy Key CRUD ───
 
 Deno.test("integration: proxy key add → list → export → delete", async () => {
@@ -647,6 +685,43 @@ Deno.test("integration: models GET and PUT", async () => {
   assertEquals(badPut.status, 400);
 
   kv.close();
+});
+
+Deno.test("integration: model availability errors do not expose stack traces", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  const token = await setupAuth(handler);
+  await handler(
+    makeReq("POST", "/api/keys", {
+      headers: { "X-Admin-Token": token },
+      body: { key: "sk-model-leak-test" },
+    }),
+  );
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = () => {
+    throw new Error("database password leaked");
+  };
+
+  try {
+    const res = await handler(
+      makeReq("POST", "/api/models/cached-model/test", {
+        headers: { "X-Admin-Token": token },
+      }),
+    );
+    const bodyText = await res.text();
+    const body = JSON.parse(bodyText);
+
+    assertEquals(res.status, 200);
+    assertEquals(body.success, false);
+    assertEquals(body.status, "error");
+    assertEquals(body.error, "模型测试失败");
+    assertEquals(bodyText.includes("database password leaked"), false);
+    assertEquals(bodyText.includes("Error:"), false);
+    assertEquals(bodyText.includes("at "), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    kv.close();
+  }
 });
 
 Deno.test("integration: model catalog errors do not expose stack traces", async () => {

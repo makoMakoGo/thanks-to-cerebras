@@ -1,10 +1,5 @@
 import { CEREBRAS_API_URL, UPSTREAM_TEST_TIMEOUT_MS } from "../constants.ts";
-import {
-  fetchWithTimeout,
-  getErrorMessage,
-  isAbortError,
-  safeJsonParse,
-} from "../utils.ts";
+import { fetchWithTimeout, isAbortError, safeJsonParse } from "../utils.ts";
 import { state } from "../state.ts";
 import { kvGetApiKeyById, kvUpdateKey } from "../kv/api-keys.ts";
 import { removeModelFromPool } from "../kv/model-catalog.ts";
@@ -83,8 +78,12 @@ export async function testKey(
       error: `HTTP ${response.status}`,
     };
   } catch (error) {
-    const msg = isAbortError(error) ? "请求超时" : getErrorMessage(error);
+    console.error("[API-KEYS] test key error:", error);
     await kvUpdateKey(id, { status: "inactive" });
-    return { success: false, status: "inactive", error: msg };
+    return {
+      success: false,
+      status: "inactive",
+      error: isAbortError(error) ? "请求超时" : "密钥测试失败",
+    };
   }
 }

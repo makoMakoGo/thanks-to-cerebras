@@ -170,7 +170,11 @@ export async function testModelAvailability(
       error: `HTTP ${response.status}`,
     };
   } catch (error) {
-    const msg = isAbortError(error) ? "请求超时" : getErrorMessage(error);
-    return { success: false, status: "error", error: msg };
+    console.error("[MODELS] test model error:", error);
+    return {
+      success: false,
+      status: "error",
+      error: isAbortError(error) ? "请求超时" : "模型测试失败",
+    };
   }
 }
