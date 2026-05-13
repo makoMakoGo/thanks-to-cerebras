@@ -170,7 +170,7 @@ export async function testModelAvailability(
       error: `HTTP ${response.status}`,
     };
   } catch (error) {
-    console.error("[MODELS] test model error:", error);
+    console.error("[MODELS] test model error for " + modelName + ":", error);
     return {
       success: false,
       status: "error",

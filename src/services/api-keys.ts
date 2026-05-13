@@ -78,7 +78,7 @@ export async function testKey(
       error: `HTTP ${response.status}`,
     };
   } catch (error) {
-    console.error("[API-KEYS] test key error:", error);
+    console.error("[API-KEYS] test key error for ID " + id + ":", error);
     await kvUpdateKey(id, { status: "inactive" });
     return {
       success: false,
