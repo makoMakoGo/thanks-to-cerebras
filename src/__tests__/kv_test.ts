@@ -7,6 +7,8 @@
 
 import { assertEquals, assertThrows } from "@std/assert";
 import { resolveKvFlushIntervalMs, validateProxyConfig } from "../kv/config.ts";
+import { AppState, state } from "../state.ts";
+import { checkKvRateLimit } from "../rate-limit.ts";
 import {
   DEFAULT_KV_FLUSH_INTERVAL_MS,
   MIN_KV_FLUSH_INTERVAL_MS,
@@ -115,4 +117,52 @@ Deno.test("validateProxyConfig - fails fast on invalid kvFlushIntervalMs", () =>
     Error,
     "请清空 KV 后重启",
   );
+});
+
+Deno.test("checkKvRateLimit - shares counters through KV and returns Retry-After", async () => {
+  const kv = await Deno.openKv(":memory:");
+  Object.assign(state, new AppState());
+  state.kv = kv;
+
+  try {
+    const rule = { namespace: "unit", maxRequests: 2, windowMs: 60_000 };
+    assertEquals(await checkKvRateLimit(rule, "same-key"), {
+      allowed: true,
+      retryAfterMs: 0,
+    });
+    assertEquals(await checkKvRateLimit(rule, "same-key"), {
+      allowed: true,
+      retryAfterMs: 0,
+    });
+
+    const limited = await checkKvRateLimit(rule, "same-key");
+    assertEquals(limited.allowed, false);
+    assertEquals(limited.retryAfterMs > 0, true);
+  } finally {
+    kv.close();
+  }
+});
+
+Deno.test("checkKvRateLimit - resets expired windows", async () => {
+  const kv = await Deno.openKv(":memory:");
+  Object.assign(state, new AppState());
+  state.kv = kv;
+
+  try {
+    const rule = { namespace: "unit-reset", maxRequests: 1, windowMs: 60_000 };
+    assertEquals((await checkKvRateLimit(rule, "key")).allowed, true);
+    assertEquals((await checkKvRateLimit(rule, "key")).allowed, false);
+
+    await kv.set(["cerebras-proxy", "rate-limit", "unit-reset", "key"], {
+      count: 1,
+      resetAt: Date.now() - 1,
+    });
+
+    assertEquals(await checkKvRateLimit(rule, "key"), {
+      allowed: true,
+      retryAfterMs: 0,
+    });
+  } finally {
+    kv.close();
+  }
 });
