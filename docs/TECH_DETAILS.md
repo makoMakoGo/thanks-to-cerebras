@@ -50,6 +50,16 @@ function isProxyAuthorized(req: Request) {
 - 成功响应保持流式透传；上游非 2xx 响应会丢弃或限长读取
   body，只向客户端返回统一错误结构和白名单响应头。
 
+## 流式响应生命周期
+
+上游 2xx response body 会被包装后再返回给客户端：
+
+- 总时长、idle 间隔和累计响应字节数都有限制，超限时取消上游 reader
+  并释放并发槽。
+- 客户端断开会触发 wrapper `cancel()`，同步取消上游 body。
+- 并发槽使用 KV atomic/TTL 计数，包含全局桶和单代理密钥桶；公开访问使用固定
+  public 桶。
+
 ## 分布式限流
 
 所有限流桶都存储在 Deno KV，使用 atomic check/set 更新并设置 TTL，因此多
@@ -87,6 +97,11 @@ isolate、冷启动和多区域部署不会各自拥有独立内存窗口。
 // 限流桶
 [KV_PREFIX, "rate-limit", <namespace>, <bucket>] -> {
   count, resetAt
+}
+
+// 流式并发槽
+[KV_PREFIX, "stream", <namespace>, <bucket>] -> {
+  count
 }
 ```
 

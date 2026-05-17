@@ -1,8 +1,14 @@
-import { assertEquals, assertMatch, assertStringIncludes } from "@std/assert";
+import {
+  assertEquals,
+  assertMatch,
+  assertRejects,
+  assertStringIncludes,
+} from "@std/assert";
 import { AppState, state } from "../state.ts";
 import { createHandler, createRouter } from "../app.ts";
 import { bootstrapCache, flushDirtyToKv } from "../kv/flush.ts";
 import { resetKvRateLimitsForTests } from "../rate-limit.ts";
+import { resetProxyStreamCountersForTests } from "../stream-limits.ts";
 import { metrics } from "../metrics.ts";
 import {
   ADMIN_CORS_HEADERS,
@@ -11,9 +17,11 @@ import {
   CORS_HEADERS,
   DEFAULT_KV_FLUSH_INTERVAL_MS,
   DEFAULT_MODEL_POOL,
+  MAX_PROXY_RESPONSE_BODY_BYTES,
   PROXY_KEY_PREFIX,
   PROXY_KEY_RATE_LIMIT_MAX,
   PROXY_KEY_RATE_LIMIT_WINDOW_MS,
+  PROXY_KEY_STREAM_CONCURRENCY_MAX,
   PROXY_UNAUTHORIZED_RATE_LIMIT_MAX,
 } from "../constants.ts";
 import { rebuildActiveKeyIds } from "../api-keys.ts";
@@ -55,6 +63,7 @@ async function setupKv(): Promise<Deno.Kv> {
   state.kv = kv;
   await bootstrapCache();
   await resetKvRateLimitsForTests();
+  await resetProxyStreamCountersForTests();
   metrics.reset();
   return kv;
 }
@@ -969,6 +978,143 @@ Deno.test("integration: successful upstream stream is still passed through", asy
     assertEquals(res.headers.get("Content-Type"), "text/event-stream");
     assertEquals(await res.text(), "data: ok\n\n");
   } finally {
+    restoreFetch();
+    kv.close();
+  }
+});
+
+Deno.test("integration: client cancellation releases stream slots", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  await enableProxyPublicAccess(handler);
+  await addActiveApiKey("sk-upstream-test");
+  let upstreamCanceled = false;
+  const restoreFetch = installUpstreamResponse(() =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("data: open\n\n"));
+        },
+        cancel() {
+          upstreamCanceled = true;
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    )
+  );
+
+  try {
+    const res = await handler(
+      makeReq("POST", "/v1/chat/completions", {
+        body: { messages: [{ role: "user", content: "hi" }] },
+      }),
+    );
+    assertEquals(res.status, 200);
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error("response body missing");
+    const first = await reader.read();
+    assertEquals(first.done, false);
+    await reader.cancel("client disconnected");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assertEquals(upstreamCanceled, true);
+    const entries = [];
+    for await (
+      const entry of kv.list({ prefix: ["cerebras-proxy", "stream"] })
+    ) {
+      entries.push(entry);
+    }
+    assertEquals(entries.length, 0);
+  } finally {
+    restoreFetch();
+    kv.close();
+  }
+});
+
+Deno.test("integration: proxy stream response bytes are bounded", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  await enableProxyPublicAccess(handler);
+  await addActiveApiKey("sk-upstream-test");
+  let upstreamCanceled = false;
+  const restoreFetch = installUpstreamResponse(() =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(new Uint8Array(MAX_PROXY_RESPONSE_BODY_BYTES + 1));
+        },
+        cancel() {
+          upstreamCanceled = true;
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    )
+  );
+
+  try {
+    const res = await handler(
+      makeReq("POST", "/v1/chat/completions", {
+        body: { messages: [{ role: "user", content: "hi" }] },
+      }),
+    );
+    assertEquals(res.status, 200);
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error("response body missing");
+    await assertRejects(
+      () => reader.read(),
+      Error,
+      "upstream stream body too large",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assertEquals(upstreamCanceled, true);
+  } finally {
+    restoreFetch();
+    kv.close();
+  }
+});
+
+Deno.test("integration: proxy stream concurrency is limited per public bucket", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  await enableProxyPublicAccess(handler);
+  await addActiveApiKey("sk-upstream-test");
+  const readers: ReadableStreamDefaultReader<Uint8Array>[] = [];
+  const restoreFetch = installUpstreamResponse(() =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("data: open\n\n"));
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } },
+    )
+  );
+
+  try {
+    for (let i = 0; i < PROXY_KEY_STREAM_CONCURRENCY_MAX; i++) {
+      const res = await handler(
+        makeReq("POST", "/v1/chat/completions", {
+          body: { messages: [{ role: "user", content: "hi" }] },
+        }),
+      );
+      assertEquals(res.status, 200);
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("response body missing");
+      await reader.read();
+      readers.push(reader);
+    }
+
+    const limited = await handler(
+      makeReq("POST", "/v1/chat/completions", {
+        body: { messages: [{ role: "user", content: "hi" }] },
+      }),
+    );
+    assertEquals(limited.status, 429);
+    assertEquals(limited.headers.has("Retry-After"), true);
+  } finally {
+    await Promise.all(readers.map((reader) => reader.cancel("done")));
+    await new Promise((resolve) => setTimeout(resolve, 0));
     restoreFetch();
     kv.close();
   }
