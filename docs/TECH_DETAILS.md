@@ -41,6 +41,15 @@ function isProxyAuthorized(req: Request) {
 - 若遇到上游 `404 model_not_found`，会把该模型从模型池中移除（持久化到
   KV），并切换到下一个模型重试（最多 3 次）
 
+## 代理请求边界
+
+- `Content-Length` 和实际读取 body 都受最大字节数限制。
+- Chat Completions 只接受关键字段的安全子集：`messages` 必须为非空数组，role
+  只能是 `system` / `user` / `assistant` / `tool`，content 和 `max_tokens`
+  有上限。
+- 成功响应保持流式透传；上游非 2xx 响应会丢弃或限长读取
+  body，只向客户端返回统一错误结构和白名单响应头。
+
 ## KV 数据结构
 
 ```typescript

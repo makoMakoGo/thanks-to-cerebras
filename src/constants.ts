@@ -20,6 +20,12 @@ export const ADMIN_TOKEN_PREFIX = [KV_PREFIX, "auth", "token"] as const;
 export const KV_ATOMIC_MAX_RETRIES = 10;
 export const MAX_PROXY_KEYS = 5;
 export const MAX_MODEL_NOT_FOUND_RETRIES = 3;
+export const MAX_PROXY_REQUEST_BODY_BYTES = 256 * 1024;
+export const MAX_CHAT_MESSAGES = 64;
+export const MAX_CHAT_MESSAGE_CONTENT_CHARS = 16_000;
+export const MAX_CHAT_TOTAL_CONTENT_CHARS = 64_000;
+export const MAX_CHAT_COMPLETION_TOKENS = 8192;
+export const MAX_UPSTREAM_ERROR_BODY_BYTES = 4096;
 
 // Timeouts
 export const ADMIN_TOKEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
