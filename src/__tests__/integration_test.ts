@@ -2,7 +2,7 @@ import { assertEquals, assertMatch, assertStringIncludes } from "@std/assert";
 import { AppState, state } from "../state.ts";
 import { createHandler, createRouter } from "../app.ts";
 import { bootstrapCache, flushDirtyToKv } from "../kv/flush.ts";
-import { loginLimiter } from "../rate-limit.ts";
+import { resetKvRateLimitsForTests } from "../rate-limit.ts";
 import { metrics } from "../metrics.ts";
 import {
   ADMIN_CORS_HEADERS,
@@ -12,8 +12,10 @@ import {
   DEFAULT_KV_FLUSH_INTERVAL_MS,
   DEFAULT_MODEL_POOL,
   PROXY_KEY_PREFIX,
+  PROXY_KEY_RATE_LIMIT_MAX,
+  PROXY_KEY_RATE_LIMIT_WINDOW_MS,
+  PROXY_UNAUTHORIZED_RATE_LIMIT_MAX,
 } from "../constants.ts";
-
 import { rebuildActiveKeyIds } from "../api-keys.ts";
 const BASE = "http://localhost";
 
@@ -52,7 +54,7 @@ async function setupKv(): Promise<Deno.Kv> {
   Object.assign(state, new AppState());
   state.kv = kv;
   await bootstrapCache();
-  loginLimiter.reset();
+  await resetKvRateLimitsForTests();
   metrics.reset();
   return kv;
 }
@@ -95,7 +97,9 @@ async function addActiveApiKey(key: string): Promise<void> {
   rebuildActiveKeyIds();
 }
 
-function installUpstreamResponse(response: Response): () => void {
+function installUpstreamResponse(
+  response: Response | (() => Response),
+): () => void {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
     if (String(input) !== CEREBRAS_API_URL) {
@@ -105,7 +109,9 @@ function installUpstreamResponse(response: Response): () => void {
     if (authorization !== "Bearer sk-upstream-test") {
       throw new Error("unexpected upstream authorization header");
     }
-    return Promise.resolve(response);
+    return Promise.resolve(
+      typeof response === "function" ? response() : response,
+    );
   };
   return () => {
     globalThis.fetch = originalFetch;
@@ -347,6 +353,37 @@ Deno.test("integration: auth rate limit ignores spoofed forwarding headers", asy
     }),
   );
   assertEquals(limited.status, 429);
+
+  kv.close();
+});
+
+Deno.test("integration: auth rate limit is stored in KV", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+
+  await handler(
+    makeReq("POST", "/api/auth/setup", {
+      headers: { "X-Setup-Token": "test-setup-token" },
+      body: { password: "test1234" },
+    }),
+  );
+
+  for (let i = 0; i < 4; i++) {
+    await handler(
+      makeReq("POST", "/api/auth/login", { body: { password: "wrong" } }),
+    );
+  }
+
+  const entries = [];
+  for await (
+    const entry of kv.list({
+      prefix: ["cerebras-proxy", "rate-limit", "admin-auth"],
+    })
+  ) {
+    entries.push(entry.value);
+  }
+  assertEquals(entries.length, 1);
+  assertEquals((entries[0] as { count: number }).count, 5);
 
   kv.close();
 });
@@ -935,6 +972,126 @@ Deno.test("integration: successful upstream stream is still passed through", asy
     restoreFetch();
     kv.close();
   }
+});
+
+Deno.test("integration: proxy key rate limit returns Retry-After", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  const token = await setupAuth(handler);
+  await addActiveApiKey("sk-upstream-test");
+  const addProxyKeyRes = await handler(
+    makeReq("POST", "/api/proxy-keys", {
+      headers: { "X-Admin-Token": token },
+      body: { name: "limited" },
+    }),
+  );
+  const { key } = await addProxyKeyRes.json();
+  const restoreFetch = installUpstreamResponse(
+    () => new Response("ok", { status: 200 }),
+  );
+
+  try {
+    for (let i = 0; i < PROXY_KEY_RATE_LIMIT_MAX; i++) {
+      const res = await handler(
+        makeReq("POST", "/v1/chat/completions", {
+          headers: { Authorization: `Bearer ${key}` },
+          body: { messages: [{ role: "user", content: "hi" }] },
+        }),
+      );
+      assertEquals(res.status, 200);
+      await res.body?.cancel();
+    }
+
+    const limited = await handler(
+      makeReq("POST", "/v1/chat/completions", {
+        headers: { Authorization: `Bearer ${key}` },
+        body: { messages: [{ role: "user", content: "hi" }] },
+      }),
+    );
+    assertEquals(limited.status, 429);
+    assertEquals(limited.headers.has("Retry-After"), true);
+  } finally {
+    restoreFetch();
+    kv.close();
+  }
+});
+
+Deno.test("integration: proxy key rate limit window resets", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  const token = await setupAuth(handler);
+  await addActiveApiKey("sk-upstream-test");
+  const addProxyKeyRes = await handler(
+    makeReq("POST", "/api/proxy-keys", {
+      headers: { "X-Admin-Token": token },
+      body: { name: "reset" },
+    }),
+  );
+  const { id, key } = await addProxyKeyRes.json();
+  const restoreFetch = installUpstreamResponse(
+    () => new Response("ok", { status: 200 }),
+  );
+
+  try {
+    for (let i = 0; i < PROXY_KEY_RATE_LIMIT_MAX; i++) {
+      const res = await handler(
+        makeReq("POST", "/v1/chat/completions", {
+          headers: { Authorization: `Bearer ${key}` },
+          body: { messages: [{ role: "user", content: "hi" }] },
+        }),
+      );
+      assertEquals(res.status, 200);
+      await res.body?.cancel();
+    }
+
+    const expiredEntry = await kv.get([
+      "cerebras-proxy",
+      "rate-limit",
+      "proxy-key",
+      id,
+    ]);
+    assertEquals(expiredEntry.value !== null, true);
+    await kv.set(expiredEntry.key, {
+      count: PROXY_KEY_RATE_LIMIT_MAX,
+      resetAt: Date.now() - PROXY_KEY_RATE_LIMIT_WINDOW_MS,
+    });
+
+    const res = await handler(
+      makeReq("POST", "/v1/chat/completions", {
+        headers: { Authorization: `Bearer ${key}` },
+        body: { messages: [{ role: "user", content: "hi" }] },
+      }),
+    );
+    assertEquals(res.status, 200);
+    await res.body?.cancel();
+  } finally {
+    restoreFetch();
+    kv.close();
+  }
+});
+
+Deno.test("integration: unauthorized proxy attempts are rate limited", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+
+  for (let i = 0; i < PROXY_UNAUTHORIZED_RATE_LIMIT_MAX; i++) {
+    const res = await handler(
+      makeReq("POST", "/v1/chat/completions", {
+        body: { messages: [{ role: "user", content: "hi" }] },
+      }),
+    );
+    assertEquals(res.status, 401);
+  }
+
+  const limited = await handler(
+    makeReq("POST", "/v1/chat/completions", {
+      body: { messages: [{ role: "user", content: "hi" }] },
+    }),
+  );
+  assertEquals(limited.status, 429);
+  assertEquals(limited.headers.has("Retry-After"), true);
+
+  kv.close();
 });
 
 // ─── Proxy: 500 no API keys ───
