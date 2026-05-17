@@ -2,13 +2,42 @@ import type { ApiKey } from "../types.ts";
 import { API_KEY_PREFIX } from "../constants.ts";
 import { generateId } from "../utils.ts";
 import { rebuildActiveKeyIds } from "../api-keys.ts";
+import { decryptApiKey, encryptApiKey, isEncryptedApiKey } from "../secrets.ts";
 import { state } from "../state.ts";
+
+type PersistedApiKey = Omit<ApiKey, "key">;
+
+type LegacyApiKey = Omit<ApiKey, "encryptedKey"> & { key: string };
+
+function assertCurrentApiKey(value: unknown): PersistedApiKey {
+  const raw = value as Record<string, unknown>;
+  if (typeof raw.encryptedKey !== "string") {
+    throw new Error("API key 存储格式不兼容：需要先运行密钥迁移");
+  }
+  if (!isEncryptedApiKey(raw.encryptedKey)) {
+    throw new Error("API key 密文格式错误");
+  }
+  return raw as unknown as PersistedApiKey;
+}
+
+async function hydrateApiKey(value: unknown): Promise<ApiKey> {
+  const persisted = assertCurrentApiKey(value);
+  return {
+    ...persisted,
+    key: await decryptApiKey(persisted.encryptedKey),
+  };
+}
+
+function toPersistedApiKey(key: ApiKey): PersistedApiKey {
+  const { key: _plaintext, ...persisted } = key;
+  return persisted;
+}
 
 export async function kvGetAllKeys(): Promise<ApiKey[]> {
   const keys: ApiKey[] = [];
   const iter = state.kv.list({ prefix: API_KEY_PREFIX });
   for await (const entry of iter) {
-    keys.push(entry.value as ApiKey);
+    keys.push(await hydrateApiKey(entry.value));
   }
   return keys;
 }
@@ -29,6 +58,7 @@ export async function kvMergeAllApiKeysIntoCache(): Promise<void> {
     }
 
     local.key = key.key;
+    local.encryptedKey = key.encryptedKey;
     local.createdAt = key.createdAt;
     if (!(local.status === "invalid" && key.status !== "invalid")) {
       local.status = key.status;
@@ -44,12 +74,57 @@ export async function kvGetApiKeyById(id: string): Promise<ApiKey | null> {
   const cached = state.cachedKeysById.get(id);
   if (cached) return cached;
 
-  const entry = await state.kv.get<ApiKey>([...API_KEY_PREFIX, id]);
+  const entry = await state.kv.get<PersistedApiKey>([...API_KEY_PREFIX, id]);
   if (!entry.value) return null;
 
-  state.cachedKeysById.set(id, entry.value);
+  const hydrated = await hydrateApiKey(entry.value);
+  state.cachedKeysById.set(id, hydrated);
   rebuildActiveKeyIds();
-  return entry.value;
+  return hydrated;
+}
+
+export async function kvMigrateApiKeysToEncrypted(): Promise<number> {
+  let migrated = 0;
+  const iter = state.kv.list({ prefix: API_KEY_PREFIX });
+  for await (const entry of iter) {
+    const value = entry.value as Partial<LegacyApiKey> & Partial<ApiKey>;
+    if (typeof value.encryptedKey === "string") continue;
+    if (typeof value.key !== "string") {
+      throw new Error("API key 迁移失败：旧记录缺少明文 key");
+    }
+
+    const encryptedKey = await encryptApiKey(value.key);
+    const migratedValue = {
+      id: value.id,
+      useCount: value.useCount,
+      lastUsed: value.lastUsed,
+      status: value.status,
+      createdAt: value.createdAt,
+      encryptedKey,
+    };
+    if (
+      typeof migratedValue.id !== "string" ||
+      typeof migratedValue.useCount !== "number" ||
+      typeof migratedValue.status !== "string" ||
+      typeof migratedValue.createdAt !== "number"
+    ) {
+      throw new Error("API key 迁移失败：旧记录结构不完整");
+    }
+    const result = await state.kv.atomic()
+      .check(entry)
+      .set(entry.key, migratedValue)
+      .commit();
+    if (!result.ok) throw new Error("API key 迁移失败：KV 写入冲突");
+    state.cachedKeysById.delete(migratedValue.id);
+    migrated++;
+  }
+  if (migrated > 0) {
+    state.cachedKeysById = new Map(
+      (await kvGetAllKeys()).map((key) => [key.id, key]),
+    );
+    rebuildActiveKeyIds();
+  }
+  return migrated;
 }
 
 let lastApiKeyCreatedAtMs = 0;
@@ -68,15 +143,17 @@ export async function kvAddKey(
     ? lastApiKeyCreatedAtMs + 1
     : now;
   lastApiKeyCreatedAtMs = createdAt;
+  const encryptedKey = await encryptApiKey(key);
   const newKey: ApiKey = {
     id,
+    encryptedKey,
     key,
     useCount: 0,
     status: "active",
     createdAt,
   };
 
-  await state.kv.set([...API_KEY_PREFIX, id], newKey);
+  await state.kv.set([...API_KEY_PREFIX, id], toPersistedApiKey(newKey));
   state.cachedKeysById.set(id, newKey);
   rebuildActiveKeyIds();
 
@@ -106,10 +183,10 @@ export async function kvUpdateKey(
 ): Promise<void> {
   const key = [...API_KEY_PREFIX, id];
   const existing = state.cachedKeysById.get(id) ??
-    (await state.kv.get<ApiKey>(key)).value;
+    (await kvGetApiKeyById(id));
   if (!existing) return;
   const updated = { ...existing, ...updates };
-  await state.kv.set(key, updated);
+  await state.kv.set(key, toPersistedApiKey(updated));
   state.cachedKeysById.set(id, updated);
   rebuildActiveKeyIds();
 }

@@ -11,6 +11,7 @@ export function createMockApiKey(overrides: Partial<ApiKey> = {}): ApiKey {
   return {
     id: crypto.randomUUID(),
     key: `test-key-${Date.now()}`,
+    encryptedKey: "v1$aes-gcm$test$test",
     useCount: 0,
     status: "active",
     createdAt: Date.now(),
@@ -26,7 +27,7 @@ export function createMockProxyKey(
 ): ProxyAuthKey {
   return {
     id: crypto.randomUUID(),
-    key: `pk-test-${Date.now()}`,
+    keyHash: "v1$hmac-sha256$test",
     name: "Test Proxy Key",
     useCount: 0,
     createdAt: Date.now(),

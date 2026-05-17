@@ -79,8 +79,9 @@
    4. **关联 KV 数据库**（必须）：详见
       [部署指南](docs/GUIDE.md#2-创建并关联-kv-数据库必须)
 
-3. **首次配置**：在部署环境设置
-   `SETUP_TOKEN`，访问部署地址，输入该初始化令牌后设置管理密码，再添加 API 密钥
+3. **首次配置**：在部署环境设置 `SETUP_TOKEN` 和
+   `KEY_ENCRYPTION_SECRET`，访问部署地址，输入初始化令牌后设置管理密码，再添加
+   API 密钥
 
 4. **配置沉浸式翻译**：
    - 上游地址：`https://<项目名>.deno.dev/v1/chat/completions`

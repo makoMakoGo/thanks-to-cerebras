@@ -35,10 +35,10 @@ deno task start
 PORT=9001 deno task start
 ```
 
-首次初始化前必须配置 `SETUP_TOKEN`：
+首次初始化前必须配置 `SETUP_TOKEN` 和 `KEY_ENCRYPTION_SECRET`：
 
 ```bash
-SETUP_TOKEN='<高熵随机字符串>' deno task start
+SETUP_TOKEN='<高熵随机字符串>' KEY_ENCRYPTION_SECRET='<高熵随机字符串>' deno task start
 ```
 
 ## KV 数据存储
@@ -85,6 +85,7 @@ WorkingDirectory=/opt/cerebras-proxy/app
 Environment=KV_PATH=/var/lib/cerebras-proxy
 Environment=PORT=8339
 Environment=SETUP_TOKEN=<高熵随机字符串>
+Environment=KEY_ENCRYPTION_SECRET=<高熵随机字符串>
 ExecStart=/usr/local/bin/deno task start
 Restart=always
 RestartSec=5

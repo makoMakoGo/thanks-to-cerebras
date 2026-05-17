@@ -6,6 +6,7 @@ import {
 } from "./src/kv/flush.ts";
 import { resolvePort } from "./src/utils.ts";
 import { createHandler, createRouter } from "./src/app.ts";
+import { assertKeyEncryptionSecretConfigured } from "./src/secrets.ts";
 
 if (import.meta.main) {
   const router = createRouter();
@@ -19,6 +20,8 @@ if (import.meta.main) {
   console.log(`- API 代理: /v1/chat/completions`);
   console.log(`- 模型接口: /v1/models`);
   console.log(`- 存储: Deno KV`);
+
+  assertKeyEncryptionSecretConfigured();
 
   await state.initKv();
   await bootstrapCache();

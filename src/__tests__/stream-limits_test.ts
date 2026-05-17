@@ -8,6 +8,7 @@ import {
 
 async function setupKv(): Promise<Deno.Kv> {
   const kv = await Deno.openKv(":memory:");
+  Deno.env.set("KEY_ENCRYPTION_SECRET", "test-key-encryption-secret");
   Object.assign(state, new AppState());
   state.kv = kv;
   await resetProxyStreamCountersForTests();
