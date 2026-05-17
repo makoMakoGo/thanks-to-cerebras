@@ -3,6 +3,9 @@ services:
     build: .
     ports:
       - "8339:8339"
+    environment:
+      SETUP_TOKEN: ${SETUP_TOKEN}
+      KEY_ENCRYPTION_SECRET: ${KEY_ENCRYPTION_SECRET}
     volumes:
       - cerebras-kv:/app/data
     restart: unless-stopped

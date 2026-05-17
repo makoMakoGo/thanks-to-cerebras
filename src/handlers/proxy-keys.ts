@@ -1,11 +1,10 @@
 import { MAX_PROXY_KEYS } from "../constants.ts";
 import { adminJsonResponse, adminProblemResponse } from "../http.ts";
-import { maskKey } from "../utils.ts";
 import {
   kvAddProxyKey,
   kvDeleteProxyKey,
   kvGetAllProxyKeys,
-  kvGetProxyKeyById,
+  kvMigrateProxyKeysToHashed,
 } from "../kv/proxy-keys.ts";
 import { kvGetConfig } from "../kv/config.ts";
 import type { Router } from "../router.ts";
@@ -16,16 +15,15 @@ async function listProxyKeys(): Promise<Response> {
     kvGetConfig(),
   ]);
   keys.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
-  const masked = keys.map((k) => ({
+  const keyMetadata = keys.map((k) => ({
     id: k.id,
-    key: maskKey(k.key),
     name: k.name,
     useCount: k.useCount,
     lastUsed: k.lastUsed,
     createdAt: k.createdAt,
   }));
   return adminJsonResponse({
-    keys: masked,
+    keys: keyMetadata,
     maxKeys: MAX_PROXY_KEYS,
     authEnabled: true,
     proxyPublicAccess: config.proxyPublicAccess,
@@ -66,24 +64,26 @@ async function deleteProxyKey(
   return adminJsonResponse(result);
 }
 
-async function exportProxyKey(
+function exportProxyKey(
   _req: Request,
   params: Record<string, string>,
-): Promise<Response> {
-  const pk = await kvGetProxyKeyById(params.id);
-  if (!pk) {
-    return adminProblemResponse("密钥不存在", {
-      status: 404,
-      instance: `/api/proxy-keys/${params.id}/export`,
-    });
-  }
-  return adminJsonResponse({ key: pk.key });
+): Response {
+  return adminProblemResponse("代理密钥只在创建时显示一次", {
+    status: 403,
+    instance: `/api/proxy-keys/${params.id}/export`,
+  });
+}
+
+async function migrateProxyKeys(): Promise<Response> {
+  const migrated = await kvMigrateProxyKeysToHashed();
+  return adminJsonResponse({ success: true, migrated });
 }
 
 export function register(router: Router): void {
   router
     .get("/api/proxy-keys", listProxyKeys)
     .post("/api/proxy-keys", createProxyKey)
+    .post("/api/proxy-keys/migrate", migrateProxyKeys)
     .delete("/api/proxy-keys/:id", deleteProxyKey)
     .get("/api/proxy-keys/:id/export", exportProxyKey);
 }

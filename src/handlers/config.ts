@@ -1,6 +1,6 @@
 import { MIN_KV_FLUSH_INTERVAL_MS } from "../constants.ts";
 import { adminJsonResponse, adminProblemResponse } from "../http.ts";
-import { maskKey, normalizeKvFlushIntervalMs } from "../utils.ts";
+import { normalizeKvFlushIntervalMs } from "../utils.ts";
 import { state } from "../state.ts";
 import { kvGetAllKeys } from "../kv/api-keys.ts";
 import {
@@ -19,7 +19,6 @@ async function getStats(): Promise<Response> {
     totalRequests: config.totalRequests,
     keyUsage: keys.map((k) => ({
       id: k.id,
-      maskedKey: maskKey(k.key),
       useCount: k.useCount,
       status: k.status,
     })),

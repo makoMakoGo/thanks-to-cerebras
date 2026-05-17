@@ -60,8 +60,11 @@ GitHub Fork  ->  Deno Deploy（console）  ->  https://<project>.deno.dev/
 
 ### 3. 设置首次初始化令牌（必须）
 
-在 Deno Deploy 项目的 **Settings → Environment Variables** 中新增
-`SETUP_TOKEN`，值使用高熵随机字符串。该令牌只用于首次创建管理密码，不要写入仓库。
+在 Deno Deploy 项目的 **Settings → Environment Variables** 中新增：
+
+- `SETUP_TOKEN`：高熵随机字符串。该令牌只用于首次创建管理密码，不要写入仓库。
+- `KEY_ENCRYPTION_SECRET`：高熵随机字符串。用于加密 Cerebras API key
+  与计算代理密钥 HMAC，丢失后无法解密或校验已存密钥。
 
 ### 4. 验证部署
 

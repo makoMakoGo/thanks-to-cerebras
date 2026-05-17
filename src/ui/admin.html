@@ -90,7 +90,6 @@
     .item-info { flex: 1; min-width: 0; }
     body .item-primary, body.light .item-primary { display: flex; align-items: center; gap: 6px; color: #334155; font-size: 11px; margin-bottom: 2px; flex-wrap: wrap; }
     .key-text { font-family: 'JetBrains Mono', monospace; word-break: break-all; }
-    .key-actions { display: inline-flex; align-items: center; gap: 2px; flex-shrink: 0; }
     body .item-secondary, body.light .item-secondary { font-size: 10px; color: #64748b; display: flex; align-items: center; gap: 4px; }
     .status-badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 500; text-transform: uppercase; }
     body .status-active, body.light .status-active { background: rgba(22, 163, 74, 0.12); color: #16a34a; }
@@ -266,7 +265,7 @@
 
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
           <span class="section-title" style="margin: 0;">密钥列表</span>
-          <button class="btn btn-outline" onclick="exportAllKeys()">导出全部</button>
+          <button class="btn btn-outline" disabled>明文导出已禁用</button>
         </div>
         <div id="keysContainer"></div>
       </div>
@@ -298,6 +297,7 @@
           <label>密钥名称（可选）</label>
           <input type="text" id="proxyKeyName" class="form-control" placeholder="例如：移动端应用">
           <button class="btn" onclick="createProxyKey()" style="margin-top: 8px;" id="createProxyKeyBtn">创建密钥</button>
+          <div id="newProxyKeyPanel" class="empty-state" style="display: none; margin-top: 8px;"></div>
         </div>
 
         <div class="divider"></div>
@@ -673,64 +673,9 @@
             const keySpan = document.createElement('span');
             keySpan.className = 'key-text';
             keySpan.id = 'pk-' + k.id;
-            keySpan.textContent = String(k.key ?? '');
-
-            const toggleBtn = document.createElement('button');
-            toggleBtn.className = 'btn-icon';
-            toggleBtn.title = '查看完整密钥';
-            toggleBtn.addEventListener('click', () => toggleProxyKeyVisibility(k.id));
-
-            const svgNs = 'http://www.w3.org/2000/svg';
-
-            const eyeIcon = document.createElementNS(svgNs, 'svg');
-            eyeIcon.id = 'pk-eye-' + k.id;
-            eyeIcon.setAttribute('xmlns', svgNs);
-            eyeIcon.setAttribute('width', '12');
-            eyeIcon.setAttribute('height', '12');
-            eyeIcon.setAttribute('viewBox', '0 0 24 24');
-            eyeIcon.setAttribute('fill', 'none');
-            eyeIcon.setAttribute('stroke', 'currentColor');
-            eyeIcon.setAttribute('stroke-width', '2');
-
-            const eyePath = document.createElementNS(svgNs, 'path');
-            eyePath.setAttribute('d', 'M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z');
-
-            const eyeCircle = document.createElementNS(svgNs, 'circle');
-            eyeCircle.setAttribute('cx', '12');
-            eyeCircle.setAttribute('cy', '12');
-            eyeCircle.setAttribute('r', '3');
-
-            eyeIcon.appendChild(eyePath);
-            eyeIcon.appendChild(eyeCircle);
-
-            const eyeOffIcon = document.createElementNS(svgNs, 'svg');
-            eyeOffIcon.id = 'pk-eye-off-' + k.id;
-            eyeOffIcon.setAttribute('xmlns', svgNs);
-            eyeOffIcon.setAttribute('width', '12');
-            eyeOffIcon.setAttribute('height', '12');
-            eyeOffIcon.setAttribute('viewBox', '0 0 24 24');
-            eyeOffIcon.setAttribute('fill', 'none');
-            eyeOffIcon.setAttribute('stroke', 'currentColor');
-            eyeOffIcon.setAttribute('stroke-width', '2');
-            eyeOffIcon.style.display = 'none';
-
-            const eyeOffPath = document.createElementNS(svgNs, 'path');
-            eyeOffPath.setAttribute('d', 'M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24');
-
-            const eyeOffLine = document.createElementNS(svgNs, 'line');
-            eyeOffLine.setAttribute('x1', '1');
-            eyeOffLine.setAttribute('y1', '1');
-            eyeOffLine.setAttribute('x2', '23');
-            eyeOffLine.setAttribute('y2', '23');
-
-            eyeOffIcon.appendChild(eyeOffPath);
-            eyeOffIcon.appendChild(eyeOffLine);
-
-            toggleBtn.appendChild(eyeIcon);
-            toggleBtn.appendChild(eyeOffIcon);
+            keySpan.textContent = 'ID: ' + String(k.id);
 
             primary.appendChild(keySpan);
-            primary.appendChild(toggleBtn);
 
             const secondary = document.createElement('div');
             secondary.className = 'item-secondary';
@@ -742,19 +687,12 @@
             const actions = document.createElement('div');
             actions.className = 'item-actions';
 
-            const copyBtn = document.createElement('button');
-            copyBtn.className = 'btn btn-outline';
-            copyBtn.textContent = '复制';
-            copyBtn.addEventListener('click', () => copyProxyKey(k.id));
-
             const deleteBtn = document.createElement('button');
             deleteBtn.className = 'btn btn-danger';
             deleteBtn.textContent = '删除';
             deleteBtn.addEventListener('click', () => deleteProxyKey(k.id));
 
-            actions.appendChild(copyBtn);
             actions.appendChild(deleteBtn);
-
             item.appendChild(info);
             item.appendChild(actions);
 
@@ -772,6 +710,9 @@
 
     async function createProxyKey() {
       const name = document.getElementById('proxyKeyName').value.trim();
+      const panel = document.getElementById('newProxyKeyPanel');
+      panel.style.display = 'none';
+      panel.textContent = '';
       try {
         const res = await fetch('/api/proxy-keys', { method: 'POST', headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
         const data = await res.json().catch(() => ({}));
@@ -781,6 +722,8 @@
           return;
         }
 
+        panel.textContent = '新代理密钥（只显示一次）：' + String(data.key);
+        panel.style.display = 'block';
         showNotification('密钥已创建，请立即复制保存');
         document.getElementById('proxyKeyName').value = '';
         loadProxyKeys();
@@ -802,41 +745,6 @@
       } catch (e) { showNotification('错误: ' + formatClientError(e), 'error'); }
     }
 
-    const proxyKeyFullValues = {};
-    async function toggleProxyKeyVisibility(id) {
-      const keySpan = document.getElementById('pk-' + id);
-      const eyeIcon = document.getElementById('pk-eye-' + id);
-      const eyeOffIcon = document.getElementById('pk-eye-off-' + id);
-      if (eyeIcon.style.display !== 'none') {
-        if (!proxyKeyFullValues[id]) {
-          try {
-            const res = await fetch('/api/proxy-keys/' + id + '/export', { headers: getAuthHeaders() });
-            const data = await res.json().catch(() => ({}));
-            if (handleUnauthorized(res)) return;
-            if (res.ok && data.key) proxyKeyFullValues[id] = data.key;
-          } catch (e) { return; }
-        }
-        if (proxyKeyFullValues[id]) {
-          keySpan.textContent = proxyKeyFullValues[id];
-          eyeIcon.style.display = 'none';
-          eyeOffIcon.style.display = 'inline';
-        }
-      } else { loadProxyKeys(); }
-    }
-
-    async function copyProxyKey(id) {
-      try {
-        const res = await fetch('/api/proxy-keys/' + id + '/export', { headers: getAuthHeaders() });
-        const data = await res.json().catch(() => ({}));
-        if (handleUnauthorized(res)) return;
-        if (!res.ok) {
-          showNotification(getApiErrorMessage(res, data) || '复制失败', 'error');
-          return;
-        }
-        if (data.key) { await navigator.clipboard.writeText(data.key); showNotification('密钥已复制'); }
-        else showNotification('复制失败', 'error');
-      } catch (e) { showNotification('错误: ' + formatClientError(e), 'error'); }
-    }
 
     // API 密钥管理
     async function addSingleKey() {
@@ -909,99 +817,9 @@
             const keySpan = document.createElement('span');
             keySpan.className = 'key-text';
             keySpan.id = 'key-' + k.id;
-            keySpan.textContent = String(k.key ?? '');
-
-            const keyActions = document.createElement('span');
-            keyActions.className = 'key-actions';
-
-            const svgNs = 'http://www.w3.org/2000/svg';
-
-            const toggleBtn = document.createElement('button');
-            toggleBtn.className = 'btn-icon';
-            toggleBtn.title = '查看完整密钥';
-            toggleBtn.addEventListener('click', () => toggleKeyVisibility(k.id));
-
-            const eyeIcon = document.createElementNS(svgNs, 'svg');
-            eyeIcon.id = 'eye-' + k.id;
-            eyeIcon.setAttribute('xmlns', svgNs);
-            eyeIcon.setAttribute('width', '14');
-            eyeIcon.setAttribute('height', '14');
-            eyeIcon.setAttribute('viewBox', '0 0 24 24');
-            eyeIcon.setAttribute('fill', 'none');
-            eyeIcon.setAttribute('stroke', 'currentColor');
-            eyeIcon.setAttribute('stroke-width', '2');
-
-            const eyePath = document.createElementNS(svgNs, 'path');
-            eyePath.setAttribute('d', 'M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z');
-
-            const eyeCircle = document.createElementNS(svgNs, 'circle');
-            eyeCircle.setAttribute('cx', '12');
-            eyeCircle.setAttribute('cy', '12');
-            eyeCircle.setAttribute('r', '3');
-
-            eyeIcon.appendChild(eyePath);
-            eyeIcon.appendChild(eyeCircle);
-
-            const eyeOffIcon = document.createElementNS(svgNs, 'svg');
-            eyeOffIcon.id = 'eye-off-' + k.id;
-            eyeOffIcon.setAttribute('xmlns', svgNs);
-            eyeOffIcon.setAttribute('width', '14');
-            eyeOffIcon.setAttribute('height', '14');
-            eyeOffIcon.setAttribute('viewBox', '0 0 24 24');
-            eyeOffIcon.setAttribute('fill', 'none');
-            eyeOffIcon.setAttribute('stroke', 'currentColor');
-            eyeOffIcon.setAttribute('stroke-width', '2');
-            eyeOffIcon.style.display = 'none';
-
-            const eyeOffPath = document.createElementNS(svgNs, 'path');
-            eyeOffPath.setAttribute('d', 'M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24');
-
-            const eyeOffLine = document.createElementNS(svgNs, 'line');
-            eyeOffLine.setAttribute('x1', '1');
-            eyeOffLine.setAttribute('y1', '1');
-            eyeOffLine.setAttribute('x2', '23');
-            eyeOffLine.setAttribute('y2', '23');
-
-            eyeOffIcon.appendChild(eyeOffPath);
-            eyeOffIcon.appendChild(eyeOffLine);
-
-            toggleBtn.appendChild(eyeIcon);
-            toggleBtn.appendChild(eyeOffIcon);
-
-            const copyBtn = document.createElement('button');
-            copyBtn.className = 'btn-icon';
-            copyBtn.title = '复制密钥';
-            copyBtn.addEventListener('click', () => copyKey(k.id));
-
-            const copySvg = document.createElementNS(svgNs, 'svg');
-            copySvg.setAttribute('xmlns', svgNs);
-            copySvg.setAttribute('width', '14');
-            copySvg.setAttribute('height', '14');
-            copySvg.setAttribute('viewBox', '0 0 24 24');
-            copySvg.setAttribute('fill', 'none');
-            copySvg.setAttribute('stroke', 'currentColor');
-            copySvg.setAttribute('stroke-width', '2');
-
-            const copyRect = document.createElementNS(svgNs, 'rect');
-            copyRect.setAttribute('x', '9');
-            copyRect.setAttribute('y', '9');
-            copyRect.setAttribute('width', '13');
-            copyRect.setAttribute('height', '13');
-            copyRect.setAttribute('rx', '2');
-            copyRect.setAttribute('ry', '2');
-
-            const copyPath = document.createElementNS(svgNs, 'path');
-            copyPath.setAttribute('d', 'M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1');
-
-            copySvg.appendChild(copyRect);
-            copySvg.appendChild(copyPath);
-            copyBtn.appendChild(copySvg);
-
-            keyActions.appendChild(toggleBtn);
-            keyActions.appendChild(copyBtn);
+            keySpan.textContent = 'ID: ' + String(k.id);
 
             primary.appendChild(keySpan);
-            primary.appendChild(keyActions);
 
             const secondary = document.createElement('div');
             secondary.className = 'item-secondary';
@@ -1061,41 +879,6 @@
       } catch (e) { showNotification('加载统计失败: ' + formatClientError(e), 'error'); }
     }
 
-    async function copyKey(id) {
-      try {
-        const res = await fetch('/api/keys/' + id + '/export', { headers: getAuthHeaders() });
-        const data = await res.json().catch(() => ({}));
-        if (handleUnauthorized(res)) return;
-        if (!res.ok) {
-          showNotification(getApiErrorMessage(res, data) || '复制失败', 'error');
-          return;
-        }
-        if (data.key) {
-          await navigator.clipboard.writeText(data.key);
-          showNotification('密钥已复制');
-        } else {
-          showNotification('复制失败', 'error');
-        }
-      } catch (e) { showNotification('错误: ' + formatClientError(e), 'error'); }
-    }
-
-    const keyFullValues = {};
-    async function toggleKeyVisibility(id) {
-      const keySpan = document.getElementById('key-' + id);
-      const eyeIcon = document.getElementById('eye-' + id);
-      const eyeOffIcon = document.getElementById('eye-off-' + id);
-      if (eyeIcon.style.display !== 'none') {
-        if (!keyFullValues[id]) {
-          try {
-            const res = await fetch('/api/keys/' + id + '/export', { headers: getAuthHeaders() });
-            const data = await res.json().catch(() => ({}));
-            if (handleUnauthorized(res)) return;
-            if (res.ok && data.key) keyFullValues[id] = data.key;
-          } catch (e) { return; }
-        }
-        if (keyFullValues[id]) { keySpan.textContent = keyFullValues[id]; eyeIcon.style.display = 'none'; eyeOffIcon.style.display = 'inline'; }
-      } else { loadKeys(); }
-    }
 
     async function deleteKey(id) {
       if (!confirm('删除此密钥？')) return;
@@ -1137,19 +920,6 @@
       }
     }
 
-    async function exportAllKeys() {
-      try {
-        const res = await fetch('/api/keys/export', { headers: getAuthHeaders() });
-        const data = await res.json().catch(() => ({}));
-        if (handleUnauthorized(res)) return;
-        if (!res.ok) {
-          showNotification(getApiErrorMessage(res, data) || '导出失败', 'error');
-          return;
-        }
-        if (data.keys?.length > 0) { await navigator.clipboard.writeText(data.keys.join('\\n')); showNotification(`${data.keys.length} 个密钥已复制`); }
-        else showNotification('没有密钥可导出', 'error');
-      } catch (e) { showNotification('错误: ' + formatClientError(e), 'error'); }
-    }
 
     // 模型管理
     function formatTimestamp(ms) {

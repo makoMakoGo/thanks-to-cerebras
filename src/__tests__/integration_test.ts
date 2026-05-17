@@ -25,6 +25,7 @@ import {
   PROXY_UNAUTHORIZED_RATE_LIMIT_MAX,
 } from "../constants.ts";
 import { rebuildActiveKeyIds } from "../api-keys.ts";
+import { encryptApiKey } from "../secrets.ts";
 const BASE = "http://localhost";
 
 type Handler = (req: Request) => Promise<Response>;
@@ -59,6 +60,7 @@ async function setupKv(): Promise<Deno.Kv> {
   }
   const kv = await Deno.openKv(":memory:");
   Deno.env.set("SETUP_TOKEN", "test-setup-token");
+  Deno.env.set("KEY_ENCRYPTION_SECRET", "test-key-encryption-secret");
   Object.assign(state, new AppState());
   state.kv = kv;
   await bootstrapCache();
@@ -97,17 +99,25 @@ async function addActiveApiKey(key: string): Promise<void> {
   const apiKey = {
     id: crypto.randomUUID(),
     key,
+    encryptedKey: await encryptApiKey(key),
     useCount: 0,
     status: "active" as const,
     createdAt: Date.now(),
   };
-  await state.kv.set([...API_KEY_PREFIX, apiKey.id], apiKey);
+  await state.kv.set([...API_KEY_PREFIX, apiKey.id], {
+    id: apiKey.id,
+    encryptedKey: apiKey.encryptedKey,
+    useCount: apiKey.useCount,
+    status: apiKey.status,
+    createdAt: apiKey.createdAt,
+  });
   state.cachedKeysById.set(apiKey.id, apiKey);
   rebuildActiveKeyIds();
 }
 
 function installUpstreamResponse(
   response: Response | (() => Response),
+  expectedAuthorization = "Bearer sk-upstream-test",
 ): () => void {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
@@ -115,7 +125,7 @@ function installUpstreamResponse(
       throw new Error(`unexpected fetch input ${String(input)}`);
     }
     const authorization = new Headers(init?.headers).get("Authorization");
-    if (authorization !== "Bearer sk-upstream-test") {
+    if (authorization !== expectedAuthorization) {
       throw new Error("unexpected upstream authorization header");
     }
     return Promise.resolve(
@@ -405,7 +415,25 @@ Deno.test("integration: API key add → list → delete", async () => {
   const listBody = await listRes.json();
   assertEquals(listBody.keys.length, 1);
   assertEquals(listBody.keys[0].id, keyId);
+  assertEquals(listBody.keys[0].key, undefined);
 
+  const storedApiKey = await kv.get([...API_KEY_PREFIX, keyId]);
+  assertEquals((storedApiKey.value as { key?: string }).key, undefined);
+  assertEquals(
+    typeof (storedApiKey.value as { encryptedKey?: string }).encryptedKey,
+    "string",
+  );
+  assertEquals(
+    (storedApiKey.value as { encryptedKey: string }).encryptedKey.includes(
+      "sk-test-abc123",
+    ),
+    false,
+  );
+
+  const exportRes = await handler(
+    makeReq("GET", `/api/keys/${keyId}/export`, { headers: h }),
+  );
+  assertEquals(exportRes.status, 403);
   const delRes = await handler(
     makeReq("DELETE", `/api/keys/${keyId}`, { headers: h }),
   );
@@ -458,7 +486,7 @@ Deno.test("integration: API key test errors do not expose stack traces", async (
 
 // ─── Proxy Key CRUD ───
 
-Deno.test("integration: proxy key add → list → export → delete", async () => {
+Deno.test("integration: proxy key add → list → delete", async () => {
   const kv = await setupKv();
   const handler = buildHandler();
   const token = await setupAuth(handler);
@@ -483,13 +511,23 @@ Deno.test("integration: proxy key add → list → export → delete", async () 
   const listBody = await listRes.json();
   assertEquals(listBody.keys.length, 1);
   assertEquals(listBody.keys[0].name, "Test Key");
+  assertEquals(listBody.keys[0].key, undefined);
+
+  const storedProxyKey = await kv.get([...PROXY_KEY_PREFIX, pkId]);
+  assertEquals((storedProxyKey.value as { key?: string }).key, undefined);
+  assertEquals(
+    typeof (storedProxyKey.value as { keyHash?: string }).keyHash,
+    "string",
+  );
+  assertEquals(
+    (storedProxyKey.value as { keyHash: string }).keyHash.includes(rawKey),
+    false,
+  );
 
   const exportRes = await handler(
     makeReq("GET", `/api/proxy-keys/${pkId}/export`, { headers: h }),
   );
-  assertEquals(exportRes.status, 200);
-  const exportBody = await exportRes.json();
-  assertEquals(exportBody.key, rawKey);
+  assertEquals(exportRes.status, 403);
 
   const delRes = await handler(
     makeReq("DELETE", `/api/proxy-keys/${pkId}`, { headers: h }),
@@ -503,6 +541,72 @@ Deno.test("integration: proxy key add → list → export → delete", async () 
   assertEquals(listBody2.keys.length, 0);
 
   kv.close();
+});
+
+Deno.test("integration: legacy stored keys migrate to encrypted records", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  const token = await setupAuth(handler);
+  const h = { "X-Admin-Token": token };
+  const apiKeyId = crypto.randomUUID();
+  const proxyKeyId = crypto.randomUUID();
+
+  await kv.set([...API_KEY_PREFIX, apiKeyId], {
+    id: apiKeyId,
+    key: "sk-legacy-api",
+    useCount: 0,
+    status: "active",
+    createdAt: 1,
+  });
+  await kv.set([...PROXY_KEY_PREFIX, proxyKeyId], {
+    id: proxyKeyId,
+    key: "cpk_legacy_proxy",
+    name: "legacy",
+    useCount: 0,
+    createdAt: 1,
+  });
+
+  const apiMigrate = await handler(
+    makeReq("POST", "/api/keys/migrate", { headers: h }),
+  );
+  assertEquals(apiMigrate.status, 200);
+  assertEquals((await apiMigrate.json()).migrated, 1);
+  const proxyMigrate = await handler(
+    makeReq("POST", "/api/proxy-keys/migrate", { headers: h }),
+  );
+  assertEquals(proxyMigrate.status, 200);
+  assertEquals((await proxyMigrate.json()).migrated, 1);
+
+  const migratedApiKey = await kv.get([...API_KEY_PREFIX, apiKeyId]);
+  assertEquals((migratedApiKey.value as { key?: string }).key, undefined);
+  assertEquals(
+    typeof (migratedApiKey.value as { encryptedKey?: string }).encryptedKey,
+    "string",
+  );
+  const migratedProxyKey = await kv.get([...PROXY_KEY_PREFIX, proxyKeyId]);
+  assertEquals((migratedProxyKey.value as { key?: string }).key, undefined);
+  assertEquals(
+    typeof (migratedProxyKey.value as { keyHash?: string }).keyHash,
+    "string",
+  );
+
+  const restoreFetch = installUpstreamResponse(
+    new Response("ok", { status: 200 }),
+    "Bearer sk-legacy-api",
+  );
+  try {
+    const res = await handler(
+      makeReq("POST", "/v1/chat/completions", {
+        headers: { Authorization: "Bearer cpk_legacy_proxy" },
+        body: { messages: [{ role: "user", content: "hi" }] },
+      }),
+    );
+    assertEquals(res.status, 200);
+    await res.body?.cancel();
+  } finally {
+    restoreFetch();
+    kv.close();
+  }
 });
 
 Deno.test("integration: proxy key creation errors do not expose stack traces", async () => {

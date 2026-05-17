@@ -10,6 +10,7 @@ async function setupKv(): Promise<Deno.Kv> {
     clearInterval(state.kvFlushTimerId);
   }
   const kv = await Deno.openKv(":memory:");
+  Deno.env.set("KEY_ENCRYPTION_SECRET", "test-key-encryption-secret");
   Object.assign(state, new AppState());
   state.kv = kv;
   return kv;
