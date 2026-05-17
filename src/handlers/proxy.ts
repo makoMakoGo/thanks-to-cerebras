@@ -13,6 +13,10 @@ import { forwardChatCompletion } from "../services/proxy.ts";
 import { readAndValidateChatRequest } from "../proxy-validation.ts";
 import { metrics } from "../metrics.ts";
 import { checkKvRateLimit, type RateLimitRule } from "../rate-limit.ts";
+import {
+  acquireProxyStreamSlots,
+  boundProxyResponseBody,
+} from "../stream-limits.ts";
 import type { Router } from "../router.ts";
 
 const PROXY_PUBLIC_KEY = "public";
@@ -100,9 +104,27 @@ async function handleProxyEndpoint(req: Request): Promise<Response> {
     return jsonError(validation.message, validation.status);
   }
 
-  const result = await forwardChatCompletion(validation.body);
+  const streamSlots = await acquireProxyStreamSlots(authResult.keyId);
+  if (!streamSlots.acquired) {
+    metrics.inc("rate_limit_hits_total", "proxy_stream_concurrency");
+    return jsonError("并发流式请求过多", 429, {
+      "Retry-After": String(streamSlots.retryAfterSec),
+    });
+  }
+  if (!streamSlots.release) {
+    throw new Error("Proxy stream slot release missing");
+  }
+
+  let result;
+  try {
+    result = await forwardChatCompletion(validation.body);
+  } catch (error) {
+    await streamSlots.release();
+    throw error;
+  }
 
   if (result.kind === "error") {
+    await streamSlots.release();
     return jsonError(
       result.message,
       result.status,
@@ -113,11 +135,23 @@ async function handleProxyEndpoint(req: Request): Promise<Response> {
     );
   }
 
-  return new Response(result.body, {
-    status: result.status,
-    statusText: result.statusText,
-    headers: result.headers,
-  });
+  if (!result.body) {
+    await streamSlots.release();
+    return new Response(null, {
+      status: result.status,
+      statusText: result.statusText,
+      headers: result.headers,
+    });
+  }
+
+  return new Response(
+    boundProxyResponseBody(result.body, streamSlots.release),
+    {
+      status: result.status,
+      statusText: result.statusText,
+      headers: result.headers,
+    },
+  );
 }
 
 export function register(router: Router): void {
