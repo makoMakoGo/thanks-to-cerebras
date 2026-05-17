@@ -1,5 +1,5 @@
 import { MIN_KV_FLUSH_INTERVAL_MS } from "../constants.ts";
-import { jsonResponse, problemResponse } from "../http.ts";
+import { adminJsonResponse, adminProblemResponse } from "../http.ts";
 import { maskKey, normalizeKvFlushIntervalMs } from "../utils.ts";
 import { state } from "../state.ts";
 import { kvGetAllKeys } from "../kv/api-keys.ts";
@@ -24,7 +24,7 @@ async function getStats(): Promise<Response> {
       status: k.status,
     })),
   };
-  return jsonResponse(stats);
+  return adminJsonResponse(stats);
 }
 
 async function updateConfig(req: Request): Promise<Response> {
@@ -33,7 +33,7 @@ async function updateConfig(req: Request): Promise<Response> {
     const raw = body.kvFlushIntervalMs;
 
     if (typeof raw !== "number" || !Number.isFinite(raw)) {
-      return problemResponse("kvFlushIntervalMs 必须为数字", {
+      return adminProblemResponse("kvFlushIntervalMs 必须为数字", {
         status: 400,
         instance: "/api/config",
       });
@@ -47,7 +47,7 @@ async function updateConfig(req: Request): Promise<Response> {
 
     applyKvFlushInterval(next);
 
-    return jsonResponse({
+    return adminJsonResponse({
       success: true,
       kvFlushIntervalMs: normalized,
       effectiveKvFlushIntervalMs: state.kvFlushIntervalMsEffective,
@@ -55,7 +55,7 @@ async function updateConfig(req: Request): Promise<Response> {
     });
   } catch (error) {
     console.error("[CONFIG] update error:", error);
-    return problemResponse("配置更新失败", {
+    return adminProblemResponse("配置更新失败", {
       status: 400,
       instance: "/api/config",
     });
@@ -73,7 +73,7 @@ async function getConfig(): Promise<Response> {
     kvFlushIntervalMs: configured,
   });
 
-  return jsonResponse({
+  return adminJsonResponse({
     ...config,
     kvFlushIntervalMs: configured,
     effectiveKvFlushIntervalMs: effective,

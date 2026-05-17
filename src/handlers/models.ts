@@ -1,5 +1,5 @@
 import { MODEL_CATALOG_TTL_MS } from "../constants.ts";
-import { jsonResponse, problemResponse } from "../http.ts";
+import { adminJsonResponse, adminProblemResponse } from "../http.ts";
 import {
   forceRefreshCatalog,
   getCatalogData,
@@ -14,7 +14,7 @@ async function getModelCatalog(): Promise<Response> {
   try {
     const { catalog, stale, lastError } = await getCatalogData();
     if (lastError) console.error("[MODELS] stale catalog error:", lastError);
-    return jsonResponse({
+    return adminJsonResponse({
       source: catalog.source,
       fetchedAt: catalog.fetchedAt,
       ttlMs: MODEL_CATALOG_TTL_MS,
@@ -24,7 +24,7 @@ async function getModelCatalog(): Promise<Response> {
     });
   } catch (error) {
     console.error("[MODELS] catalog fetch error:", error);
-    return problemResponse("无法获取模型目录", {
+    return adminProblemResponse("无法获取模型目录", {
       status: 502,
       instance: "/api/models/catalog",
     });
@@ -35,7 +35,7 @@ async function refreshCatalog(): Promise<Response> {
   try {
     const { catalog, stale, lastError } = await forceRefreshCatalog();
     if (lastError) console.error("[MODELS] stale refresh error:", lastError);
-    return jsonResponse({
+    return adminJsonResponse({
       source: catalog.source,
       fetchedAt: catalog.fetchedAt,
       ttlMs: MODEL_CATALOG_TTL_MS,
@@ -45,7 +45,7 @@ async function refreshCatalog(): Promise<Response> {
     });
   } catch (error) {
     console.error("[MODELS] catalog refresh error:", error);
-    return problemResponse("目录刷新失败", {
+    return adminProblemResponse("目录刷新失败", {
       status: 502,
       instance: "/api/models/catalog/refresh",
     });
@@ -53,7 +53,7 @@ async function refreshCatalog(): Promise<Response> {
 }
 
 async function getModels(): Promise<Response> {
-  return jsonResponse({ models: await getModelPool() });
+  return adminJsonResponse({ models: await getModelPool() });
 }
 
 async function updateModels(req: Request): Promise<Response> {
@@ -61,7 +61,7 @@ async function updateModels(req: Request): Promise<Response> {
     const body = await req.json().catch(() => ({}));
     const raw = (body as { models?: unknown }).models;
     if (!Array.isArray(raw)) {
-      return problemResponse("models 必须为字符串数组", {
+      return adminProblemResponse("models 必须为字符串数组", {
         status: 400,
         instance: "/api/models",
       });
@@ -69,17 +69,17 @@ async function updateModels(req: Request): Promise<Response> {
 
     const models = validateAndDeduplicateModels(raw);
     if (!models) {
-      return problemResponse("模型池不能为空", {
+      return adminProblemResponse("模型池不能为空", {
         status: 400,
         instance: "/api/models",
       });
     }
 
     await updateModelPool(models);
-    return jsonResponse({ success: true, models });
+    return adminJsonResponse({ success: true, models });
   } catch (error) {
     console.error("[MODELS] update pool error:", error);
-    return problemResponse("模型池更新失败", {
+    return adminProblemResponse("模型池更新失败", {
       status: 500,
       instance: "/api/models",
     });
@@ -94,7 +94,7 @@ async function testModel(
   try {
     modelName = decodeURIComponent(params.name);
   } catch {
-    return problemResponse("模型名称 URL 编码非法", {
+    return adminProblemResponse("模型名称 URL 编码非法", {
       status: 400,
       instance: `/api/models/${params.name}/test`,
     });
@@ -102,12 +102,12 @@ async function testModel(
 
   const result = await testModelAvailability(modelName);
   if (result.error === "没有可用的 API 密钥") {
-    return problemResponse(result.error, {
+    return adminProblemResponse(result.error, {
       status: 400,
       instance: `/api/models/${params.name}/test`,
     });
   }
-  return jsonResponse(result);
+  return adminJsonResponse(result);
 }
 
 export function register(router: Router): void {

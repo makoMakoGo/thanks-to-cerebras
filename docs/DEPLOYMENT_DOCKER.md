@@ -14,6 +14,15 @@ docker compose up -d
 
 默认访问 `http://localhost:8339` 进入管理面板。
 
+首次初始化前必须配置 `SETUP_TOKEN`：
+
+```yaml
+environment:
+  - SETUP_TOKEN=<高熵随机字符串>
+```
+
+访问管理面板后输入该令牌并设置管理密码。
+
 ## 端口配置
 
 Docker 端口映射格式为：

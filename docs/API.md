@@ -1,11 +1,14 @@
 # API 文档
 
-> 📖 相关文档：[README](../README.md) | [部署指南](GUIDE.md) | [技术细节](TECH_DETAILS.md)
+> 📖 相关文档：[README](../README.md) | [部署指南](GUIDE.md) |
+> [技术细节](TECH_DETAILS.md)
 
 ## 0. 约定
 
 - Base URL：`https://<your-project>.deno.dev`
-- 对外代理接口（`/v1/*`）支持开放 CORS（`Access-Control-Allow-Origin: *`）；管理接口（`/api/*`）的 OPTIONS 预检不返回 `Access-Control-Allow-Origin`，浏览器跨域请求会被拦截。
+- 对外代理接口（`/v1/*`）支持开放
+  CORS（`Access-Control-Allow-Origin: *`）；管理接口（`/api/*`）的 JSON 响应与
+  OPTIONS 预检不返回 `Access-Control-Allow-Origin`，浏览器跨域请求会被拦截。
 - `OPTIONS` 预检请求统一返回 `204`。
 - JSON 响应默认带 `Cache-Control: no-store`（用于避免缓存敏感数据/统计）。
 
@@ -41,7 +44,9 @@
 - 行为：
   - 会把请求体的 `model` 字段覆盖为模型池轮询得到的真实模型
   - 流式响应会直接透传上游 response body
-  - 若上游返回 `404` 且错误为 `model_not_found`，代理会把该模型从模型池中移除（持久化到 KV），并立刻切换到下一个模型重试（最多 `3` 次）
+  - 若上游返回 `404` 且错误为
+    `model_not_found`，代理会把该模型从模型池中移除（持久化到
+    KV），并立刻切换到下一个模型重试（最多 `3` 次）
 
 常见响应码：
 
@@ -60,11 +65,14 @@
 ### 3.2 `POST /api/auth/setup`
 
 - 描述：首次设置管理密码（只能调用一次；已设置则返回错误）。
+- Header：`X-Setup-Token: <SETUP_TOKEN>`
+- Content-Type：`application/json`
 - 请求体：`{ "password": string }`
 - 响应：`{ "success": true, "token": string }`
 
 ### 3.3 `POST /api/auth/login`
 
+- Content-Type：`application/json`
 - 请求体：`{ "password": string }`
 - 响应：`{ "success": true, "token": string }`
 
