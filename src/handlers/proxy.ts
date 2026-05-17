@@ -2,6 +2,7 @@ import { EXTERNAL_MODEL_ID } from "../constants.ts";
 import { jsonError, jsonResponse } from "../http.ts";
 import { isProxyAuthorized, recordProxyKeyUsage } from "../auth.ts";
 import { forwardChatCompletion } from "../services/proxy.ts";
+import { readAndValidateChatRequest } from "../proxy-validation.ts";
 import { metrics } from "../metrics.ts";
 import type { Router } from "../router.ts";
 
@@ -31,35 +32,22 @@ async function handleProxyEndpoint(req: Request): Promise<Response> {
     recordProxyKeyUsage(authResult.keyId);
   }
 
-  let requestBody: unknown;
-  try {
-    requestBody = await req.json();
-  } catch {
+  const validation = await readAndValidateChatRequest(req);
+  if (!validation.ok) {
     metrics.inc("proxy_requests_total", "bad_request");
-    return jsonError("无效的 JSON 请求体", 400);
+    return jsonError(validation.message, validation.status);
   }
 
-  if (
-    !requestBody ||
-    typeof requestBody !== "object" ||
-    !Array.isArray((requestBody as Record<string, unknown>).messages) ||
-    (requestBody as Record<string, unknown[]>).messages.length === 0
-  ) {
-    metrics.inc("proxy_requests_total", "bad_request");
-    return jsonError("请求体必须包含非空的 messages 数组", 400);
-  }
-
-  const result = await forwardChatCompletion(
-    requestBody as Record<string, unknown>,
-  );
+  const result = await forwardChatCompletion(validation.body);
 
   if (result.kind === "error") {
     return jsonError(
       result.message,
       result.status,
-      result.retryAfterSec
-        ? { "Retry-After": String(result.retryAfterSec) }
-        : undefined,
+      result.headers ??
+        (result.retryAfterSec
+          ? { "Retry-After": String(result.retryAfterSec) }
+          : undefined),
     );
   }
 

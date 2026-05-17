@@ -2,6 +2,7 @@ import {
   CEREBRAS_API_URL,
   CORS_HEADERS,
   MAX_MODEL_NOT_FOUND_RETRIES,
+  MAX_UPSTREAM_ERROR_BODY_BYTES,
   NO_CACHE_HEADERS,
   PROXY_REQUEST_TIMEOUT_MS,
 } from "../constants.ts";
@@ -34,6 +35,7 @@ export type ProxyResult =
     message: string;
     status: number;
     retryAfterSec?: number;
+    headers?: Headers;
   };
 
 function applyStandardHeaders(headers: Headers): void {
@@ -42,6 +44,40 @@ function applyStandardHeaders(headers: Headers): void {
   }
   for (const [key, value] of Object.entries(NO_CACHE_HEADERS)) {
     headers.set(key, value);
+  }
+}
+
+function buildSanitizedUpstreamError(response: Response): ProxyResult {
+  const headers = new Headers({ "Content-Type": "application/json" });
+  const retryAfter = response.headers.get("Retry-After");
+  if (retryAfter) headers.set("Retry-After", retryAfter);
+  applyStandardHeaders(headers);
+  return {
+    kind: "error",
+    message: "上游请求失败",
+    status: response.status,
+    headers,
+  };
+}
+
+async function discardBoundedUpstreamErrorBody(
+  response: Response,
+): Promise<void> {
+  const reader = response.body?.getReader();
+  if (!reader) return;
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      total += value.byteLength;
+      if (total > MAX_UPSTREAM_ERROR_BODY_BYTES) {
+        await reader.cancel();
+        return;
+      }
+    }
+  } finally {
+    reader.releaseLock();
   }
 }
 
@@ -137,20 +173,24 @@ export async function forwardChatCompletion(
       }
     }
 
-    if (apiResponse.status === 429) {
-      markKeyCooldownFrom429(apiKeyData.id, apiResponse);
-      metrics.inc("upstream_responses_total", "429");
-    } else if (apiResponse.status === 401 || apiResponse.status === 403) {
-      await markKeyInvalid(apiKeyData.id);
-      metrics.inc(
-        "upstream_responses_total",
-        apiResponse.status === 401 ? "401" : "403",
-      );
-    } else if (apiResponse.ok) {
-      metrics.inc("upstream_responses_total", "2xx");
-    } else {
-      metrics.inc("upstream_responses_total", "other");
+    if (!apiResponse.ok) {
+      await discardBoundedUpstreamErrorBody(apiResponse);
+      if (apiResponse.status === 429) {
+        markKeyCooldownFrom429(apiKeyData.id, apiResponse);
+        metrics.inc("upstream_responses_total", "429");
+      } else if (apiResponse.status === 401 || apiResponse.status === 403) {
+        await markKeyInvalid(apiKeyData.id);
+        metrics.inc(
+          "upstream_responses_total",
+          apiResponse.status === 401 ? "401" : "403",
+        );
+      } else {
+        metrics.inc("upstream_responses_total", "other");
+      }
+      metrics.inc("proxy_requests_total", "upstream_error");
+      return buildSanitizedUpstreamError(apiResponse);
     }
+    metrics.inc("upstream_responses_total", "2xx");
 
     const responseHeaders = new Headers(apiResponse.headers);
     applyStandardHeaders(responseHeaders);

@@ -7,12 +7,14 @@ import { metrics } from "../metrics.ts";
 import {
   ADMIN_CORS_HEADERS,
   API_KEY_PREFIX,
+  CEREBRAS_API_URL,
   CORS_HEADERS,
   DEFAULT_KV_FLUSH_INTERVAL_MS,
   DEFAULT_MODEL_POOL,
   PROXY_KEY_PREFIX,
 } from "../constants.ts";
 
+import { rebuildActiveKeyIds } from "../api-keys.ts";
 const BASE = "http://localhost";
 
 type Handler = (req: Request) => Promise<Response>;
@@ -78,6 +80,41 @@ async function enableProxyPublicAccess(handler: Handler): Promise<string> {
   const body = await res.json();
   assertEquals(body.proxyPublicAccess, true);
   return token;
+}
+
+async function addActiveApiKey(key: string): Promise<void> {
+  const apiKey = {
+    id: crypto.randomUUID(),
+    key,
+    useCount: 0,
+    status: "active" as const,
+    createdAt: Date.now(),
+  };
+  await state.kv.set([...API_KEY_PREFIX, apiKey.id], apiKey);
+  state.cachedKeysById.set(apiKey.id, apiKey);
+  rebuildActiveKeyIds();
+}
+
+function installUpstreamResponse(response: Response): () => void {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input) !== CEREBRAS_API_URL) {
+      throw new Error(`unexpected fetch input ${String(input)}`);
+    }
+    const authorization = new Headers(init?.headers).get("Authorization");
+    if (authorization !== "Bearer sk-upstream-test") {
+      throw new Error("unexpected upstream authorization header");
+    }
+    return Promise.resolve(response);
+  };
+  return () => {
+    globalThis.fetch = originalFetch;
+  };
+}
+
+function requestBodyOf(size: number): string {
+  const content = "x".repeat(size);
+  return JSON.stringify({ messages: [{ role: "user", content }] });
 }
 
 // ─── Auth Flow ───
@@ -747,6 +784,157 @@ Deno.test("integration: proxy 400 when messages missing or empty", async () => {
   assertEquals(res2.status, 400);
 
   kv.close();
+});
+
+Deno.test("integration: proxy rejects oversized Content-Length before JSON parsing", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  await enableProxyPublicAccess(handler);
+
+  const res = await handler(
+    new Request(`${BASE}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": "2000000",
+      },
+      body: requestBodyOf(16),
+    }),
+  );
+  assertEquals(res.status, 413);
+
+  kv.close();
+});
+
+Deno.test("integration: proxy rejects oversized body without Content-Length", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  await enableProxyPublicAccess(handler);
+
+  const res = await handler(
+    new Request(`${BASE}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: requestBodyOf(2000000),
+    }),
+  );
+  assertEquals(res.status, 413);
+
+  kv.close();
+});
+
+Deno.test("integration: proxy validates chat request schema and cost bounds", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  await enableProxyPublicAccess(handler);
+
+  const badRole = await handler(
+    makeReq("POST", "/v1/chat/completions", {
+      body: { messages: [{ role: "attacker", content: "hi" }] },
+    }),
+  );
+  assertEquals(badRole.status, 400);
+
+  const tooManyMessages = await handler(
+    makeReq("POST", "/v1/chat/completions", {
+      body: {
+        messages: Array.from({ length: 65 }, () => ({
+          role: "user",
+          content: "hi",
+        })),
+      },
+    }),
+  );
+  assertEquals(tooManyMessages.status, 400);
+
+  const tooMuchContent = await handler(
+    makeReq("POST", "/v1/chat/completions", {
+      body: { messages: [{ role: "user", content: "x".repeat(70000) }] },
+    }),
+  );
+  assertEquals(tooMuchContent.status, 400);
+
+  const tooManyOutputTokens = await handler(
+    makeReq("POST", "/v1/chat/completions", {
+      body: {
+        messages: [{ role: "user", content: "hi" }],
+        max_tokens: 8193,
+      },
+    }),
+  );
+  assertEquals(tooManyOutputTokens.status, 400);
+
+  kv.close();
+});
+
+Deno.test("integration: upstream non-2xx errors are sanitized", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  await enableProxyPublicAccess(handler);
+  await addActiveApiKey("sk-upstream-test");
+  const restoreFetch = installUpstreamResponse(
+    new Response(JSON.stringify({ error: "account secret detail" }), {
+      status: 401,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Trace-Id": "secret-trace",
+        "Retry-After": "7",
+      },
+    }),
+  );
+
+  try {
+    const res = await handler(
+      makeReq("POST", "/v1/chat/completions", {
+        body: { messages: [{ role: "user", content: "hi" }] },
+      }),
+    );
+    const text = await res.text();
+    const body = JSON.parse(text);
+    assertEquals(res.status, 401);
+    assertEquals(body.error, "上游请求失败");
+    assertEquals(text.includes("account secret detail"), false);
+    assertEquals(res.headers.get("X-Trace-Id"), null);
+    assertEquals(res.headers.get("Retry-After"), "7");
+  } finally {
+    restoreFetch();
+    kv.close();
+  }
+});
+
+Deno.test("integration: successful upstream stream is still passed through", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  await enableProxyPublicAccess(handler);
+  await addActiveApiKey("sk-upstream-test");
+  const restoreFetch = installUpstreamResponse(
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("data: ok\n\n"));
+          controller.close();
+        },
+      }),
+      {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      },
+    ),
+  );
+
+  try {
+    const res = await handler(
+      makeReq("POST", "/v1/chat/completions", {
+        body: { messages: [{ role: "user", content: "hi" }] },
+      }),
+    );
+    assertEquals(res.status, 200);
+    assertEquals(res.headers.get("Content-Type"), "text/event-stream");
+    assertEquals(await res.text(), "data: ok\n\n");
+  } finally {
+    restoreFetch();
+    kv.close();
+  }
 });
 
 // ─── Proxy: 500 no API keys ───
