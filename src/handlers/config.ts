@@ -30,28 +30,53 @@ async function getStats(): Promise<Response> {
 async function updateConfig(req: Request): Promise<Response> {
   try {
     const body = await req.json().catch(() => ({}));
-    const raw = body.kvFlushIntervalMs;
+    const kvFlushIntervalMs = body.kvFlushIntervalMs;
+    const proxyPublicAccess = body.proxyPublicAccess;
 
-    if (typeof raw !== "number" || !Number.isFinite(raw)) {
+    if (
+      kvFlushIntervalMs !== undefined &&
+      (typeof kvFlushIntervalMs !== "number" ||
+        !Number.isFinite(kvFlushIntervalMs))
+    ) {
       return adminProblemResponse("kvFlushIntervalMs 必须为数字", {
         status: 400,
         instance: "/api/config",
       });
     }
 
-    const normalized = normalizeKvFlushIntervalMs(raw);
+    if (
+      proxyPublicAccess !== undefined && typeof proxyPublicAccess !== "boolean"
+    ) {
+      return adminProblemResponse("proxyPublicAccess 必须为布尔值", {
+        status: 400,
+        instance: "/api/config",
+      });
+    }
+
+    if (kvFlushIntervalMs === undefined && proxyPublicAccess === undefined) {
+      return adminProblemResponse("缺少可更新配置", {
+        status: 400,
+        instance: "/api/config",
+      });
+    }
+
+    const normalized = kvFlushIntervalMs === undefined
+      ? undefined
+      : normalizeKvFlushIntervalMs(kvFlushIntervalMs);
     const next = await kvUpdateConfig((config) => ({
       ...config,
-      kvFlushIntervalMs: normalized,
+      ...(normalized === undefined ? {} : { kvFlushIntervalMs: normalized }),
+      ...(proxyPublicAccess === undefined ? {} : { proxyPublicAccess }),
     }));
 
-    applyKvFlushInterval(next);
+    if (normalized !== undefined) applyKvFlushInterval(next);
 
     return adminJsonResponse({
       success: true,
-      kvFlushIntervalMs: normalized,
+      kvFlushIntervalMs: next.kvFlushIntervalMs,
       effectiveKvFlushIntervalMs: state.kvFlushIntervalMsEffective,
       kvFlushIntervalMinMs: MIN_KV_FLUSH_INTERVAL_MS,
+      proxyPublicAccess: next.proxyPublicAccess,
     });
   } catch (error) {
     console.error("[CONFIG] update error:", error);

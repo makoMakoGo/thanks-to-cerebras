@@ -7,10 +7,14 @@ import {
   kvGetAllProxyKeys,
   kvGetProxyKeyById,
 } from "../kv/proxy-keys.ts";
+import { kvGetConfig } from "../kv/config.ts";
 import type { Router } from "../router.ts";
 
 async function listProxyKeys(): Promise<Response> {
-  const keys = await kvGetAllProxyKeys();
+  const [keys, config] = await Promise.all([
+    kvGetAllProxyKeys(),
+    kvGetConfig(),
+  ]);
   keys.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
   const masked = keys.map((k) => ({
     id: k.id,
@@ -23,7 +27,8 @@ async function listProxyKeys(): Promise<Response> {
   return adminJsonResponse({
     keys: masked,
     maxKeys: MAX_PROXY_KEYS,
-    authEnabled: keys.length > 0,
+    authEnabled: true,
+    proxyPublicAccess: config.proxyPublicAccess,
   });
 }
 

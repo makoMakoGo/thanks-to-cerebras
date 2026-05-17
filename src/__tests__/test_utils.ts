@@ -45,6 +45,7 @@ export function createMockConfig(
     currentModelIndex: 0,
     totalRequests: 0,
     kvFlushIntervalMs: 15000,
+    proxyPublicAccess: false,
     ...overrides,
   };
 }

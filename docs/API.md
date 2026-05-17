@@ -27,9 +27,9 @@
 
 ### 1.2 代理 API（OpenAI 兼容入口）
 
-- 当 **未创建任何代理密钥**（`/api/proxy-keys` 为空）时：**公开访问**。
-- 当 **已创建代理密钥** 时：必须携带
+- 默认必须携带代理密钥：
   - Header：`Authorization: Bearer <proxy_key>`
+- 当管理面板显式开启公开访问时，可不携带代理密钥。
 
 ## 2. OpenAI 兼容代理接口（对外）
 
@@ -50,7 +50,8 @@
 
 常见响应码：
 
-- `401`：代理访问未授权（启用了代理密钥但没带/带错 Bearer token）
+- `401`：代理访问未授权（没带/带错 Bearer
+  token，或未创建代理密钥且未开启公开访问）
 - `429`：当前没有可用 API key（全部处于冷却/不可用等）
 
 ## 3. 管理鉴权 API（无需先登录）
@@ -88,7 +89,8 @@
 ### 4.1 代理访问密钥（Proxy Keys）
 
 - `GET /api/proxy-keys`
-  - 返回：密钥列表（key 会做 mask）、`maxKeys`、`authEnabled`
+  - 返回：密钥列表（key 会做
+    mask）、`maxKeys`、`authEnabled`、`proxyPublicAccess`
 - `POST /api/proxy-keys`
   - 请求体：`{ "name": string }`（可选）
   - 成功：返回新创建的密钥（返回体中会包含一次性明文 key）

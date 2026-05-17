@@ -98,17 +98,18 @@ function findProxyKeyByToken(token: string): string | null {
 
 // Proxy authorization
 /**
- * Authorizes proxy requests, allowing open access until proxy keys exist.
+ * Authorizes proxy requests with fail-closed default access.
  */
 export async function isProxyAuthorized(
   req: Request,
 ): Promise<{ authorized: boolean; keyId?: string }> {
+  if (state.cachedConfig?.proxyPublicAccess === true) {
+    return { authorized: true };
+  }
   if (state.cachedProxyKeys.size === 0) {
     const keys = await kvGetAllProxyKeys();
-    if (keys.length === 0) {
-      return { authorized: true };
-    }
     state.cachedProxyKeys = new Map(keys.map((k) => [k.id, k]));
+    if (keys.length === 0) return { authorized: false };
   }
 
   const authHeader = req.headers.get("Authorization");
