@@ -4,13 +4,17 @@ import {
   MAX_CHAT_MESSAGES,
   MAX_CHAT_TOTAL_CONTENT_CHARS,
   MAX_PROXY_REQUEST_BODY_BYTES,
+  PROXY_REQUEST_BODY_IDLE_TIMEOUT_MS,
+  PROXY_REQUEST_BODY_TOTAL_TIMEOUT_MS,
 } from "./constants.ts";
 
 const VALID_ROLES = new Set(["system", "user", "assistant", "tool"]);
 
 export type ChatRequestValidation =
   | { ok: true; body: Record<string, unknown> }
-  | { ok: false; status: 400 | 413; message: string };
+  | { ok: false; status: 400 | 408 | 413; message: string };
+
+export type BodyReadTimeouts = { idleMs: number; totalMs: number };
 
 export async function readAndValidateChatRequest(
   req: Request,
@@ -25,7 +29,14 @@ export async function readAndValidateChatRequest(
     }
   }
 
-  const bodyText = await readBoundedText(req, MAX_PROXY_REQUEST_BODY_BYTES);
+  const bodyText = await readBoundedTextForTests(
+    req,
+    MAX_PROXY_REQUEST_BODY_BYTES,
+    {
+      idleMs: PROXY_REQUEST_BODY_IDLE_TIMEOUT_MS,
+      totalMs: PROXY_REQUEST_BODY_TOTAL_TIMEOUT_MS,
+    },
+  );
   if (!bodyText.ok) return bodyText;
 
   let parsed: unknown;
@@ -38,20 +49,42 @@ export async function readAndValidateChatRequest(
   return validateChatRequest(parsed);
 }
 
-async function readBoundedText(
+export async function readBoundedTextForTests(
   req: Request,
   maxBytes: number,
+  timeouts: BodyReadTimeouts,
 ): Promise<
-  { ok: true; text: string } | { ok: false; status: 413; message: string }
+  { ok: true; text: string } | { ok: false; status: 408 | 413; message: string }
 > {
   const reader = req.body?.getReader();
   if (!reader) return { ok: true, text: "" };
 
   const chunks: Uint8Array[] = [];
   let total = 0;
+  const startedAt = Date.now();
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const remainingTotalMs = timeouts.totalMs - (Date.now() - startedAt);
+      if (remainingTotalMs <= 0) {
+        await reader.cancel("body total timeout");
+        return { ok: false, status: 408, message: "请求体读取超时" };
+      }
+      const read = reader.read();
+      let timerId: number | undefined;
+      const timeout = new Promise<"timeout">((resolve) => {
+        timerId = setTimeout(
+          () => resolve("timeout"),
+          Math.min(timeouts.idleMs, remainingTotalMs),
+        );
+      });
+      const result = await Promise.race([read, timeout]);
+      if (timerId !== undefined) clearTimeout(timerId);
+      if (result === "timeout") {
+        read.catch(() => {});
+        void reader.cancel("body read timeout");
+        return { ok: false, status: 408, message: "请求体读取超时" };
+      }
+      const { done, value } = result;
       if (done) break;
       total += value.byteLength;
       if (total > maxBytes) {

@@ -22,10 +22,12 @@ import {
   PROXY_KEY_RATE_LIMIT_MAX,
   PROXY_KEY_RATE_LIMIT_WINDOW_MS,
   PROXY_KEY_STREAM_CONCURRENCY_MAX,
+  PROXY_REQUEST_BODY_IDLE_TIMEOUT_MS,
   PROXY_UNAUTHORIZED_RATE_LIMIT_MAX,
 } from "../constants.ts";
 import { rebuildActiveKeyIds } from "../api-keys.ts";
 import { encryptApiKey } from "../secrets.ts";
+import { readBoundedTextForTests } from "../proxy-validation.ts";
 const BASE = "http://localhost";
 
 type Handler = (req: Request) => Promise<Response>;
@@ -1128,6 +1130,154 @@ Deno.test("integration: upstream non-2xx errors are sanitized", async () => {
     assertEquals(text.includes("account secret detail"), false);
     assertEquals(res.headers.get("X-Trace-Id"), null);
     assertEquals(res.headers.get("Retry-After"), "7");
+  } finally {
+    restoreFetch();
+    kv.close();
+  }
+});
+
+Deno.test("integration: upstream 401 invalidation does not persist plaintext API keys", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  await enableProxyPublicAccess(handler);
+  await addActiveApiKey("sk-invalidated-secret");
+  const [apiKeyId] = state.cachedActiveKeyIds;
+  const restoreFetch = installUpstreamResponse(
+    new Response(JSON.stringify({ error: "revoked" }), { status: 401 }),
+    "Bearer sk-invalidated-secret",
+  );
+
+  try {
+    const res = await handler(
+      makeReq("POST", "/v1/chat/completions", {
+        body: { messages: [{ role: "user", content: "hi" }] },
+      }),
+    );
+    const text = await res.text();
+    assertEquals(res.status, 401);
+    assertEquals(text.includes("sk-invalidated-secret"), false);
+
+    const entry = await kv.get([...API_KEY_PREFIX, apiKeyId]);
+    const persisted = entry.value as Record<string, unknown>;
+    assertEquals(persisted.status, "invalid");
+    assertEquals(persisted.key, undefined);
+    assertEquals(typeof persisted.encryptedKey, "string");
+    assertEquals(
+      JSON.stringify(persisted).includes("sk-invalidated-secret"),
+      false,
+    );
+  } finally {
+    restoreFetch();
+    kv.close();
+  }
+});
+
+Deno.test("integration: slow proxy request bodies are cancelled", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  await enableProxyPublicAccess(handler);
+  let canceled = false;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('{"messages":['));
+    },
+    cancel() {
+      canceled = true;
+    },
+  });
+  const startedAt = Date.now();
+
+  try {
+    const res = await handler(
+      new Request(`${BASE}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+        duplex: "half",
+      } as RequestInit),
+    );
+    const responseBody = await res.json();
+    assertEquals(res.status, 408);
+    assertEquals(responseBody.error, "请求体读取超时");
+    assertEquals(canceled, true);
+    assertEquals(
+      Date.now() - startedAt >= PROXY_REQUEST_BODY_IDLE_TIMEOUT_MS,
+      true,
+    );
+  } finally {
+    kv.close();
+  }
+});
+
+Deno.test("readBoundedTextForTests - returns after cancelling a stalled body", async () => {
+  let canceled = false;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('{"messages":['));
+    },
+    cancel() {
+      canceled = true;
+      return new Promise<void>(() => {});
+    },
+  });
+
+  const startedAt = Date.now();
+  const result = await readBoundedTextForTests(
+    new Request(`${BASE}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+      duplex: "half",
+    } as RequestInit),
+    1024,
+    { idleMs: 1, totalMs: 5 },
+  );
+
+  assertEquals(result, {
+    ok: false,
+    status: 408,
+    message: "请求体读取超时",
+  });
+  assertEquals(canceled, true);
+  assertEquals(Date.now() - startedAt < 1000, true);
+});
+
+Deno.test("integration: upstream model-not-found classification is bounded", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  await enableProxyPublicAccess(handler);
+  await addActiveApiKey("sk-upstream-test");
+  let cancelCount = 0;
+  const restoreFetch = installUpstreamResponse(() =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode(
+              JSON.stringify({ error: { message: "model not found" } }),
+            ),
+          );
+          controller.enqueue(new Uint8Array(MAX_PROXY_RESPONSE_BODY_BYTES));
+        },
+        cancel() {
+          cancelCount++;
+        },
+      }),
+      { status: 404, headers: { "Content-Type": "application/json" } },
+    )
+  );
+
+  try {
+    const res = await handler(
+      makeReq("POST", "/v1/chat/completions", {
+        body: { messages: [{ role: "user", content: "hi" }] },
+      }),
+    );
+    const text = await res.text();
+    assertEquals(res.status, 404);
+    assertEquals(text.includes("model not found"), false);
+    assertEquals(text.includes("Upstream request failed"), true);
+    assertEquals(cancelCount, 1);
   } finally {
     restoreFetch();
     kv.close();

@@ -1,11 +1,10 @@
 import type { ApiKey } from "../types.ts";
+import { type PersistedApiKey, toPersistedApiKey } from "../api-key-record.ts";
 import { API_KEY_PREFIX } from "../constants.ts";
 import { generateId } from "../utils.ts";
 import { rebuildActiveKeyIds } from "../api-keys.ts";
 import { decryptApiKey, encryptApiKey, isEncryptedApiKey } from "../secrets.ts";
 import { state } from "../state.ts";
-
-type PersistedApiKey = Omit<ApiKey, "key">;
 
 type LegacyApiKey = Omit<ApiKey, "encryptedKey"> & { key: string };
 
@@ -26,11 +25,6 @@ async function hydrateApiKey(value: unknown): Promise<ApiKey> {
     ...persisted,
     key: await decryptApiKey(persisted.encryptedKey),
   };
-}
-
-function toPersistedApiKey(key: ApiKey): PersistedApiKey {
-  const { key: _plaintext, ...persisted } = key;
-  return persisted;
 }
 
 export async function kvGetAllKeys(): Promise<ApiKey[]> {
