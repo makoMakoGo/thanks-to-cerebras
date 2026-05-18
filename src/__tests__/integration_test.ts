@@ -13,6 +13,7 @@ import { metrics } from "../metrics.ts";
 import {
   ADMIN_CORS_HEADERS,
   ADMIN_TOKEN_PREFIX,
+  API_KEY_CACHE_REVISION_KEY,
   API_KEY_PREFIX,
   CEREBRAS_API_URL,
   CORS_HEADERS,
@@ -234,6 +235,8 @@ Deno.test("integration: admin session tokens are stored as keyed digests", async
   const token = await createAdminToken();
   const plaintextEntry = await kv.get([...ADMIN_TOKEN_PREFIX, token]);
   assertEquals(plaintextEntry.value, null);
+  await kv.set([...ADMIN_TOKEN_PREFIX, "legacy-token"], Date.now() + 60_000);
+  assertEquals(await verifyAdminToken("legacy-token"), false);
 
   const digestEntry = await kv.get([
     ...ADMIN_TOKEN_PREFIX,
@@ -1004,6 +1007,52 @@ Deno.test("integration: public access cache refreshes after config revision", as
   kv.close();
 });
 
+Deno.test("integration: auth revision refresh retries after cache failure", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  const token = await enableProxyPublicAccess(handler);
+
+  await handler(
+    makeReq("PATCH", "/api/config", {
+      headers: { "X-Admin-Token": token },
+      body: { proxyPublicAccess: false },
+    }),
+  );
+  state.cachedConfig!.proxyPublicAccess = true;
+  state.proxyKeyCacheLastLoadedAt = 0;
+  state.authCacheRevision = 0;
+  state.authCacheRevisionLastCheckedAt = 0;
+
+  const originalList = state.kv.list.bind(state.kv);
+  let failed = false;
+  state.kv.list = ((
+    selector: Deno.KvListSelector,
+    options?: Deno.KvListOptions,
+  ) => {
+    if (!failed) {
+      failed = true;
+      throw new Error("transient proxy key list failure");
+    }
+    return originalList(selector, options);
+  }) as typeof state.kv.list;
+
+  await assertRejects(
+    () => isProxyAuthorized(makeReq("POST", "/v1/chat/completions")),
+    Error,
+    "transient proxy key list failure",
+  );
+  assertEquals(state.authCacheRevision, 0);
+  assertEquals(state.authCacheRevisionLastCheckedAt, 0);
+  state.kv.list = originalList;
+
+  const auth = await isProxyAuthorized(
+    makeReq("POST", "/v1/chat/completions"),
+  );
+  assertEquals(auth.authorized, false);
+
+  kv.close();
+});
+
 Deno.test("integration: proxy invalid tokens do not repeatedly reload empty cache", async () => {
   const kv = await setupKv();
   const handler = buildHandler();
@@ -1268,6 +1317,8 @@ Deno.test("integration: upstream 401 invalidation does not persist plaintext API
       JSON.stringify(persisted).includes("sk-invalidated-secret"),
       false,
     );
+    const revisionEntry = await kv.get<number>(API_KEY_CACHE_REVISION_KEY);
+    assertEquals(typeof revisionEntry.value, "number");
   } finally {
     restoreFetch();
     kv.close();
@@ -1280,10 +1331,7 @@ Deno.test("integration: API key cache evicts stale deleted keys after revision",
   const [apiKeyId] = state.cachedActiveKeyIds;
 
   await kv.delete([...API_KEY_PREFIX, apiKeyId]);
-  await kv.set(
-    ["cerebras-proxy", "meta", "api_key_cache_revision"],
-    Date.now(),
-  );
+  await kv.set(API_KEY_CACHE_REVISION_KEY, Date.now());
   state.apiKeyCacheRevision = 0;
   state.apiKeyCacheRevisionLastCheckedAt = 0;
   await refreshApiKeyCacheIfChanged();
@@ -1300,10 +1348,7 @@ Deno.test("integration: API key revision refresh retries after merge failure", a
   const [apiKeyId] = state.cachedActiveKeyIds;
 
   await kv.delete([...API_KEY_PREFIX, apiKeyId]);
-  await kv.set(
-    ["cerebras-proxy", "meta", "api_key_cache_revision"],
-    Date.now(),
-  );
+  await kv.set(API_KEY_CACHE_REVISION_KEY, Date.now());
   state.apiKeyCacheRevision = 0;
   state.apiKeyCacheRevisionLastCheckedAt = 0;
 
@@ -1327,7 +1372,6 @@ Deno.test("integration: API key revision refresh retries after merge failure", a
   );
   assertEquals(state.apiKeyCacheRevision, 0);
   state.kv.list = originalList;
-  state.apiKeyCacheRevisionLastCheckedAt = 0;
 
   await refreshApiKeyCacheIfChanged();
   assertEquals(state.cachedKeysById.has(apiKeyId), false);

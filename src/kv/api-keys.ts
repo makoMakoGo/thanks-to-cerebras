@@ -160,8 +160,13 @@ export async function kvAddKey(
   };
 
   const revisionEntry = await state.kv.get<number>(API_KEY_CACHE_REVISION_KEY);
+  const idEntry = await state.kv.get([...API_KEY_PREFIX, id]);
+  if (idEntry.value !== null) {
+    return { success: false, error: "密钥保存冲突，请重试" };
+  }
   const revision = getNextRevisionValue(revisionEntry);
   const result = await state.kv.atomic()
+    .check(idEntry)
     .check(revisionEntry)
     .set([...API_KEY_PREFIX, id], toPersistedApiKey(newKey))
     .set(API_KEY_CACHE_REVISION_KEY, revision)

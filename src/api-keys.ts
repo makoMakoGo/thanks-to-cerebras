@@ -1,10 +1,15 @@
 import {
+  API_KEY_CACHE_REVISION_KEY,
   API_KEY_PREFIX,
   PROXY_KEY_AUTH_REFRESH_INTERVAL_MS,
 } from "./constants.ts";
 import { toPersistedApiKey } from "./api-key-record.ts";
 import { state } from "./state.ts";
-import { getApiKeyCacheRevision } from "./kv/revisions.ts";
+import {
+  getApiKeyCacheRevision,
+  getNextRevisionValue,
+  recordApiKeyCacheRevision,
+} from "./kv/revisions.ts";
 import { kvMergeAllApiKeysIntoCache } from "./kv/api-keys.ts";
 
 export function rebuildActiveKeyIds(): void {
@@ -57,6 +62,19 @@ export function getNextApiKeyFast(
 }
 
 export async function refreshApiKeyCacheIfChanged(): Promise<void> {
+  if (state.apiKeyCacheRevisionRefreshInFlight) {
+    return await state.apiKeyCacheRevisionRefreshInFlight;
+  }
+  const refresh = refreshApiKeyCacheRevision();
+  state.apiKeyCacheRevisionRefreshInFlight = refresh;
+  try {
+    await refresh;
+  } finally {
+    state.apiKeyCacheRevisionRefreshInFlight = null;
+  }
+}
+
+async function refreshApiKeyCacheRevision(): Promise<void> {
   const now = Date.now();
   if (
     now - state.apiKeyCacheRevisionLastCheckedAt <
@@ -65,10 +83,12 @@ export async function refreshApiKeyCacheIfChanged(): Promise<void> {
     return;
   }
   const revision = await getApiKeyCacheRevision();
-  state.apiKeyCacheRevisionLastCheckedAt = now;
-  if (revision === state.apiKeyCacheRevision) return;
+  if (revision === state.apiKeyCacheRevision) {
+    state.apiKeyCacheRevisionLastCheckedAt = now;
+    return;
+  }
   await kvMergeAllApiKeysIntoCache();
-  state.apiKeyCacheRevision = revision;
+  recordApiKeyCacheRevision(revision);
 }
 
 export function markKeyCooldownFrom429(id: string, response: Response): void {
@@ -88,7 +108,21 @@ export async function markKeyInvalid(id: string): Promise<void> {
   state.dirtyKeyIds.delete(id);
   rebuildActiveKeyIds();
   try {
-    await state.kv.set([...API_KEY_PREFIX, id], toPersistedApiKey(keyEntry));
+    const key = [...API_KEY_PREFIX, id];
+    const entry = await state.kv.get(key);
+    if (!entry.value) return;
+    const revisionEntry = await state.kv.get<number>(
+      API_KEY_CACHE_REVISION_KEY,
+    );
+    const revision = getNextRevisionValue(revisionEntry);
+    const result = await state.kv.atomic()
+      .check(entry)
+      .check(revisionEntry)
+      .set(key, toPersistedApiKey(keyEntry))
+      .set(API_KEY_CACHE_REVISION_KEY, revision)
+      .commit();
+    if (!result.ok) throw new Error("API key invalidation write conflict");
+    recordApiKeyCacheRevision(revision);
   } catch (error) {
     state.dirtyKeyIds.add(id);
     console.error("[KV] markKeyInvalid immediate write failed:", error);
