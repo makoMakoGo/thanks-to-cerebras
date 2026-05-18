@@ -49,3 +49,13 @@ Deno.test("secrets - hashes proxy keys for verification", async () => {
   assertEquals(await verifyProxyKey("cpk_unit_secret", hash), true);
   assertEquals(await verifyProxyKey("cpk_wrong", hash), false);
 });
+
+Deno.test("secrets - rejects malformed proxy key hashes", async () => {
+  Deno.env.set("KEY_ENCRYPTION_SECRET", "unit-secret");
+
+  await assertRejects(
+    () => verifyProxyKey("cpk_unit_secret", "v1$hmac-sha256$not-base64!"),
+    Error,
+    "proxy key 哈希格式错误",
+  );
+});

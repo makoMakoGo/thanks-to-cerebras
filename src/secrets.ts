@@ -16,11 +16,11 @@ function decodeBase64Url(value: string): Uint8Array {
   return Uint8Array.from(atob(padded), (char) => char.charCodeAt(0));
 }
 
-function bytesSource(bytes: Uint8Array): ArrayBuffer {
-  return bytes.buffer.slice(
-    bytes.byteOffset,
-    bytes.byteOffset + bytes.byteLength,
-  ) as ArrayBuffer;
+function bytesSource(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
+  if (bytes.buffer instanceof ArrayBuffer) {
+    return bytes as Uint8Array<ArrayBuffer>;
+  }
+  return new Uint8Array(bytes);
 }
 
 function secretMaterial(): Uint8Array {
@@ -62,6 +62,23 @@ export function isHashedProxyKey(value: string): boolean {
   return value.startsWith(PROXY_KEY_PREFIX);
 }
 
+function decodeProxyKeyHash(storedHash: string): Uint8Array {
+  const parts = storedHash.split("$");
+  if (
+    parts.length !== 3 || parts[0] !== "v1" || parts[1] !== "hmac-sha256"
+  ) {
+    throw new Error("proxy key 哈希格式错误");
+  }
+  try {
+    return decodeBase64Url(parts[2]);
+  } catch (error) {
+    if (error instanceof DOMException) {
+      throw new Error("proxy key 哈希格式错误");
+    }
+    throw error;
+  }
+}
+
 export async function encryptApiKey(plaintext: string): Promise<string> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const key = await deriveAesKey();
@@ -95,23 +112,27 @@ export async function decryptApiKey(stored: string): Promise<string> {
   return new TextDecoder().decode(plaintext);
 }
 
-export async function hashProxyKey(secret: string): Promise<string> {
-  const signature = new Uint8Array(
+async function hashProxyKeyBytes(secret: string): Promise<Uint8Array> {
+  return new Uint8Array(
     await crypto.subtle.sign(
       "HMAC",
       await deriveHmacKey(),
       bytesSource(new TextEncoder().encode(secret)),
     ),
   );
+}
+
+export async function hashProxyKey(secret: string): Promise<string> {
+  const signature = await hashProxyKeyBytes(secret);
   return `${PROXY_KEY_PREFIX}${encodeBase64Url(signature)}`;
 }
 
-function constantTimeEqual(a: string, b: string): boolean {
-  const maxLength = Math.max(a.length, b.length);
-  let diff = a.length ^ b.length;
+function constantTimeEqualBytes(a: Uint8Array, b: Uint8Array): boolean {
+  const maxLength = Math.max(a.byteLength, b.byteLength);
+  let diff = a.byteLength ^ b.byteLength;
   for (let i = 0; i < maxLength; i++) {
-    const left = i < a.length ? a.charCodeAt(i) : 0;
-    const right = i < b.length ? b.charCodeAt(i) : 0;
+    const left = i < a.byteLength ? a[i] : 0;
+    const right = i < b.byteLength ? b[i] : 0;
     diff |= left ^ right;
   }
   return diff === 0;
@@ -124,6 +145,6 @@ export async function verifyProxyKey(
   if (!isHashedProxyKey(storedHash)) {
     throw new Error("proxy key 存储格式不兼容：需要先运行密钥迁移");
   }
-  const expected = await hashProxyKey(secret);
-  return constantTimeEqual(expected, storedHash);
+  const expected = await hashProxyKeyBytes(secret);
+  return constantTimeEqualBytes(expected, decodeProxyKeyHash(storedHash));
 }
