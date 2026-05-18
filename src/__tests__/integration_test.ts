@@ -152,6 +152,13 @@ Deno.test("integration: first-time auth setup requires JSON and bootstrap token"
   assertEquals(missingEnv.status, 503);
 
   Deno.env.set("SETUP_TOKEN", "test-setup-token");
+  const missingHeader = await handler(
+    makeReq("POST", "/api/auth/setup", {
+      body: { password: "first-pass" },
+    }),
+  );
+  assertEquals(missingHeader.status, 403);
+
   const wrongToken = await handler(
     makeReq("POST", "/api/auth/setup", {
       headers: { "X-Setup-Token": "wrong-token" },
@@ -216,18 +223,47 @@ Deno.test("integration: concurrent first-time auth setup creates one admin token
     ),
     handler(
       makeReq("POST", "/api/auth/setup", {
-        headers: { "X-Setup-Token": "test-setup-token" },
+        headers: { "X-Setup-Token": "wrong-token" },
         body: { password: "second-pass" },
       }),
     ),
   ]);
   const statuses = responses.map((res) => res.status).sort((a, b) => a - b);
-  assertEquals(statuses, [200, 400]);
+  assertEquals(statuses, [200, 403]);
 
   const bodies = await Promise.all(responses.map((res) => res.json()));
   const successBodies = bodies.filter((body) => body.success === true);
   assertEquals(successBodies.length, 1);
   assertMatch(successBodies[0].token, /^[0-9a-f-]{36}$/);
+
+  kv.close();
+});
+
+Deno.test("integration: setup wrong-token requests do not consume rate-limit bucket", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+
+  // Saturate the global admin-auth bucket (5 / 60s) using bogus
+  // X-Setup-Token requests. With the cheap-checks-before-rate-limit
+  // ordering these must NOT count toward the bucket, so the legitimate
+  // setup that follows still succeeds.
+  for (let i = 0; i < 20; i++) {
+    const res = await handler(
+      makeReq("POST", "/api/auth/setup", {
+        headers: { "X-Setup-Token": `bogus-${i}` },
+        body: { password: "first-pass" },
+      }),
+    );
+    assertEquals(res.status, 403);
+  }
+
+  const setupRes = await handler(
+    makeReq("POST", "/api/auth/setup", {
+      headers: { "X-Setup-Token": "test-setup-token" },
+      body: { password: "first-pass" },
+    }),
+  );
+  assertEquals(setupRes.status, 200);
 
   kv.close();
 });

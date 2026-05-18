@@ -1,5 +1,30 @@
 export const PBKDF2_ITERATIONS = 100000;
 export const PBKDF2_KEY_LENGTH = 32;
+
+/**
+ * Constant-time string comparison for short secret tokens (e.g. SETUP_TOKEN).
+ *
+ * Avoids leaking secret length / matched-prefix length through CPU-time
+ * side channels. Encodes both inputs as UTF-8 bytes and walks the longer
+ * of the two buffers so that the loop count never depends on equality of
+ * earlier bytes. Always returns false when lengths differ.
+ */
+export function safeCompare(a: string, b: string): boolean {
+  const encoder = new TextEncoder();
+  const aBuf = encoder.encode(a);
+  const bBuf = encoder.encode(b);
+  // Mismatched length is itself a non-match; we still walk the longer
+  // buffer to keep the loop count independent of `a`.
+  const len = Math.max(aBuf.length, bBuf.length);
+  let diff = aBuf.length ^ bBuf.length;
+  for (let i = 0; i < len; i++) {
+    const ai = i < aBuf.length ? aBuf[i] : 0;
+    const bi = i < bBuf.length ? bBuf[i] : 0;
+    diff |= ai ^ bi;
+  }
+  return diff === 0;
+}
+
 export async function hashPassword(
   password: string,
   salt?: Uint8Array,

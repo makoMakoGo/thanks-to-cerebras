@@ -7,6 +7,7 @@ import {
   verifyAdminPassword,
   verifyAdminToken,
 } from "../auth.ts";
+import { safeCompare } from "../crypto.ts";
 import { loginLimiter } from "../rate-limit.ts";
 import { metrics } from "../metrics.ts";
 import type { Router } from "../router.ts";
@@ -30,8 +31,37 @@ async function getAuthStatus(req: Request): Promise<Response> {
 
 /**
  * Handles first-run password setup while preserving the single-admin invariant.
+ *
+ * Cheap, side-effect-free checks (Content-Type, SETUP_TOKEN configuration,
+ * X-Setup-Token match) run BEFORE the rate-limit bucket is consumed. This
+ * prevents an unauthenticated attacker from filling the global setup
+ * bucket with bogus requests and DoS-ing the legitimate admin during the
+ * first-run window.
  */
 async function setupAuth(req: Request): Promise<Response> {
+  const contentType = req.headers.get("Content-Type");
+  if (!contentType || !contentType.toLowerCase().includes("application/json")) {
+    return adminProblemResponse("请求体必须是 application/json", {
+      status: 415,
+      instance: "/api/auth/setup",
+    });
+  }
+
+  const setupToken = Deno.env.get("SETUP_TOKEN");
+  if (!setupToken) {
+    return adminProblemResponse("SETUP_TOKEN 未配置，禁止首次初始化", {
+      status: 503,
+      instance: "/api/auth/setup",
+    });
+  }
+  const providedToken = req.headers.get("X-Setup-Token") ?? "";
+  if (!safeCompare(providedToken, setupToken)) {
+    return adminProblemResponse("初始化令牌错误", {
+      status: 403,
+      instance: "/api/auth/setup",
+    });
+  }
+
   const key = getRateLimitKey(req);
   const limit = loginLimiter.check(key);
   if (!limit.allowed) {
@@ -48,27 +78,6 @@ async function setupAuth(req: Request): Promise<Response> {
   if (hasPassword) {
     return adminProblemResponse("密码已设置", {
       status: 400,
-      instance: "/api/auth/setup",
-    });
-  }
-  const contentType = req.headers.get("Content-Type");
-  if (!contentType || !contentType.toLowerCase().includes("application/json")) {
-    return adminProblemResponse("请求体必须是 application/json", {
-      status: 415,
-      instance: "/api/auth/setup",
-    });
-  }
-
-  const setupToken = Deno.env.get("SETUP_TOKEN");
-  if (!setupToken) {
-    return adminProblemResponse("SETUP_TOKEN 未配置，禁止首次初始化", {
-      status: 503,
-      instance: "/api/auth/setup",
-    });
-  }
-  if (req.headers.get("X-Setup-Token") !== setupToken) {
-    return adminProblemResponse("初始化令牌错误", {
-      status: 403,
       instance: "/api/auth/setup",
     });
   }
@@ -124,6 +133,12 @@ async function loginAuth(req: Request): Promise<Response> {
   }
   try {
     const { password } = await req.json();
+    if (typeof password !== "string") {
+      return adminProblemResponse("密码格式错误", {
+        status: 400,
+        instance: "/api/auth/login",
+      });
+    }
     const valid = await verifyAdminPassword(password);
     if (!valid) {
       return adminProblemResponse("密码错误", {
