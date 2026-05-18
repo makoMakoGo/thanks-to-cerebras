@@ -1,5 +1,9 @@
 import { ADMIN_CORS_HEADERS, CORS_HEADERS } from "./constants.ts";
-import { jsonResponse, problemResponse } from "./http.ts";
+import {
+  adminJsonResponse,
+  adminProblemResponse,
+  problemResponse,
+} from "./http.ts";
 import { isAdminAuthorized } from "./auth.ts";
 import { Router } from "./router.ts";
 import { renderAdminPage } from "./ui/admin.ts";
@@ -22,7 +26,7 @@ export function createRouter(): Router {
   registerProxy(router);
   router
     .get("/healthz", () => new Response("ok", { status: 200 }))
-    .get("/api/metrics", () => jsonResponse(metrics.snapshot()))
+    .get("/api/metrics", () => adminJsonResponse(metrics.snapshot()))
     .get("/", () => renderAdminPage());
   return router;
 }
@@ -43,7 +47,7 @@ export function createHandler(
 
     if (path.startsWith("/api/") && !path.startsWith("/api/auth/")) {
       if (!(await isAdminAuthorized(req))) {
-        return problemResponse("未登录", { status: 401, instance: path });
+        return adminProblemResponse("未登录", { status: 401, instance: path });
       }
     }
 

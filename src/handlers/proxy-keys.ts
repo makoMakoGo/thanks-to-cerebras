@@ -1,5 +1,5 @@
 import { MAX_PROXY_KEYS } from "../constants.ts";
-import { jsonResponse, problemResponse } from "../http.ts";
+import { adminJsonResponse, adminProblemResponse } from "../http.ts";
 import { maskKey } from "../utils.ts";
 import {
   kvAddProxyKey,
@@ -20,7 +20,7 @@ async function listProxyKeys(): Promise<Response> {
     lastUsed: k.lastUsed,
     createdAt: k.createdAt,
   }));
-  return jsonResponse({
+  return adminJsonResponse({
     keys: masked,
     maxKeys: MAX_PROXY_KEYS,
     authEnabled: keys.length > 0,
@@ -32,15 +32,15 @@ async function createProxyKey(req: Request): Promise<Response> {
     const { name } = await req.json().catch(() => ({ name: "" }));
     const result = await kvAddProxyKey(name);
     if (!result.success) {
-      return problemResponse(result.error ?? "创建失败", {
+      return adminProblemResponse(result.error ?? "创建失败", {
         status: 400,
         instance: "/api/proxy-keys",
       });
     }
-    return jsonResponse(result, { status: 201 });
+    return adminJsonResponse(result, { status: 201 });
   } catch (error) {
     console.error("[PROXY-KEYS] create key error:", error);
-    return problemResponse("创建失败", {
+    return adminProblemResponse("创建失败", {
       status: 400,
       instance: "/api/proxy-keys",
     });
@@ -53,12 +53,12 @@ async function deleteProxyKey(
 ): Promise<Response> {
   const result = await kvDeleteProxyKey(params.id);
   if (!result.success) {
-    return problemResponse(result.error ?? "删除失败", {
+    return adminProblemResponse(result.error ?? "删除失败", {
       status: result.error === "密钥不存在" ? 404 : 400,
       instance: `/api/proxy-keys/${params.id}`,
     });
   }
-  return jsonResponse(result);
+  return adminJsonResponse(result);
 }
 
 async function exportProxyKey(
@@ -67,12 +67,12 @@ async function exportProxyKey(
 ): Promise<Response> {
   const pk = await kvGetProxyKeyById(params.id);
   if (!pk) {
-    return problemResponse("密钥不存在", {
+    return adminProblemResponse("密钥不存在", {
       status: 404,
       instance: `/api/proxy-keys/${params.id}/export`,
     });
   }
-  return jsonResponse({ key: pk.key });
+  return adminJsonResponse({ key: pk.key });
 }
 
 export function register(router: Router): void {

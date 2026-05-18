@@ -1,4 +1,4 @@
-import { jsonResponse, problemResponse } from "../http.ts";
+import { adminJsonResponse, adminProblemResponse } from "../http.ts";
 import { maskKey, parseBatchInput } from "../utils.ts";
 import {
   kvAddKey,
@@ -16,14 +16,14 @@ async function listApiKeys(): Promise<Response> {
     ...k,
     key: maskKey(k.key),
   }));
-  return jsonResponse({ keys: maskedKeys });
+  return adminJsonResponse({ keys: maskedKeys });
 }
 
 async function addApiKey(req: Request): Promise<Response> {
   try {
     const { key } = await req.json();
     if (!key) {
-      return problemResponse("密钥不能为空", {
+      return adminProblemResponse("密钥不能为空", {
         status: 400,
         instance: "/api/keys",
       });
@@ -31,16 +31,16 @@ async function addApiKey(req: Request): Promise<Response> {
 
     const result = await kvAddKey(key);
     if (!result.success) {
-      return problemResponse(result.error ?? "添加失败", {
+      return adminProblemResponse(result.error ?? "添加失败", {
         status: result.error === "密钥已存在" ? 409 : 400,
         instance: "/api/keys",
       });
     }
 
-    return jsonResponse(result, { status: 201 });
+    return adminJsonResponse(result, { status: 201 });
   } catch (error) {
     console.error("[API-KEYS] add key error:", error);
-    return problemResponse("请求处理失败", {
+    return adminProblemResponse("请求处理失败", {
       status: 400,
       instance: "/api/keys",
     });
@@ -60,7 +60,7 @@ async function batchImportApiKeys(req: Request): Promise<Response> {
     }
 
     if (!input?.trim()) {
-      return problemResponse("输入不能为空", {
+      return adminProblemResponse("输入不能为空", {
         status: 400,
         instance: "/api/keys/batch",
       });
@@ -84,7 +84,7 @@ async function batchImportApiKeys(req: Request): Promise<Response> {
       }
     }
 
-    return jsonResponse({
+    return adminJsonResponse({
       summary: {
         total: keys.length,
         success: results.success.length,
@@ -94,7 +94,7 @@ async function batchImportApiKeys(req: Request): Promise<Response> {
     });
   } catch (error) {
     console.error("[API-KEYS] batch import error:", error);
-    return problemResponse("请求处理失败", {
+    return adminProblemResponse("请求处理失败", {
       status: 400,
       instance: "/api/keys/batch",
     });
@@ -105,7 +105,7 @@ async function exportAllApiKeys(): Promise<Response> {
   const keys = await kvGetAllKeys();
   keys.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
   const rawKeys = keys.map((k) => k.key);
-  return jsonResponse({ keys: rawKeys });
+  return adminJsonResponse({ keys: rawKeys });
 }
 
 async function exportApiKey(
@@ -114,12 +114,12 @@ async function exportApiKey(
 ): Promise<Response> {
   const keyEntry = await kvGetApiKeyById(params.id);
   if (!keyEntry) {
-    return problemResponse("密钥不存在", {
+    return adminProblemResponse("密钥不存在", {
       status: 404,
       instance: `/api/keys/${params.id}/export`,
     });
   }
-  return jsonResponse({ key: keyEntry.key });
+  return adminJsonResponse({ key: keyEntry.key });
 }
 
 async function deleteApiKey(
@@ -128,19 +128,19 @@ async function deleteApiKey(
 ): Promise<Response> {
   const result = await kvDeleteKey(params.id);
   if (!result.success) {
-    return problemResponse(result.error ?? "删除失败", {
+    return adminProblemResponse(result.error ?? "删除失败", {
       status: result.error === "密钥不存在" ? 404 : 400,
       instance: `/api/keys/${params.id}`,
     });
   }
-  return jsonResponse(result);
+  return adminJsonResponse(result);
 }
 
 async function testApiKey(
   _req: Request,
   params: Record<string, string>,
 ): Promise<Response> {
-  return jsonResponse(await testKey(params.id));
+  return adminJsonResponse(await testKey(params.id));
 }
 
 export function register(router: Router): void {

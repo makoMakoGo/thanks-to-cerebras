@@ -1,5 +1,42 @@
 export const PBKDF2_ITERATIONS = 100000;
 export const PBKDF2_KEY_LENGTH = 32;
+
+const SHA256_BYTES = 32;
+
+function bytesSource(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
+}
+
+function constantTimeEqualBytes(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== SHA256_BYTES || b.length !== SHA256_BYTES) return false;
+
+  let diff = 0;
+  for (let i = 0; i < SHA256_BYTES; i++) {
+    diff |= a[i] ^ b[i];
+  }
+  return diff === 0;
+}
+
+async function sha256Bytes(value: string): Promise<Uint8Array> {
+  return new Uint8Array(
+    await crypto.subtle.digest(
+      "SHA-256",
+      bytesSource(new TextEncoder().encode(value)),
+    ),
+  );
+}
+
+export async function compareSecret(a: string, b: string): Promise<boolean> {
+  const [aDigest, bDigest] = await Promise.all([
+    sha256Bytes(a),
+    sha256Bytes(b),
+  ]);
+  return constantTimeEqualBytes(aDigest, bDigest);
+}
+
 export async function hashPassword(
   password: string,
   salt?: Uint8Array,

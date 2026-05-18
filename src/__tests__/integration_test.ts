@@ -1,4 +1,4 @@
-import { assertEquals, assertMatch } from "@std/assert";
+import { assertEquals, assertMatch, assertStringIncludes } from "@std/assert";
 import { AppState, state } from "../state.ts";
 import { createHandler, createRouter } from "../app.ts";
 import { bootstrapCache, flushDirtyToKv } from "../kv/flush.ts";
@@ -46,6 +46,7 @@ async function setupKv(): Promise<Deno.Kv> {
     clearInterval(state.kvFlushTimerId);
   }
   const kv = await Deno.openKv(":memory:");
+  Deno.env.set("SETUP_TOKEN", "test-setup-token");
   Object.assign(state, new AppState());
   state.kv = kv;
   await bootstrapCache();
@@ -56,7 +57,10 @@ async function setupKv(): Promise<Deno.Kv> {
 
 async function setupAuth(handler: Handler): Promise<string> {
   const res = await handler(
-    makeReq("POST", "/api/auth/setup", { body: { password: "test1234" } }),
+    makeReq("POST", "/api/auth/setup", {
+      headers: { "X-Setup-Token": "test-setup-token" },
+      body: { password: "test1234" },
+    }),
   );
   const { token } = await res.json();
   return token;
@@ -75,7 +79,10 @@ Deno.test("integration: auth setup → login → logout", async () => {
   assertEquals(status1.isLoggedIn, false);
 
   const setupRes = await handler(
-    makeReq("POST", "/api/auth/setup", { body: { password: "test1234" } }),
+    makeReq("POST", "/api/auth/setup", {
+      headers: { "X-Setup-Token": "test-setup-token" },
+      body: { password: "test1234" },
+    }),
   );
   assertEquals(setupRes.status, 200);
   const setupBody = await setupRes.json();
@@ -91,7 +98,10 @@ Deno.test("integration: auth setup → login → logout", async () => {
   assertEquals(status2.isLoggedIn, true);
 
   const dupRes = await handler(
-    makeReq("POST", "/api/auth/setup", { body: { password: "other" } }),
+    makeReq("POST", "/api/auth/setup", {
+      headers: { "X-Setup-Token": "test-setup-token" },
+      body: { password: "other" },
+    }),
   );
   assertEquals(dupRes.status, 400);
 
@@ -131,20 +141,95 @@ Deno.test("integration: auth setup → login → logout", async () => {
   kv.close();
 });
 
+Deno.test("integration: first-time auth setup requires JSON and bootstrap token", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+
+  Deno.env.delete("SETUP_TOKEN");
+  const missingEnv = await handler(
+    makeReq("POST", "/api/auth/setup", { body: { password: "first-pass" } }),
+  );
+  assertEquals(missingEnv.status, 503);
+
+  Deno.env.set("SETUP_TOKEN", "test-setup-token");
+  const missingHeader = await handler(
+    makeReq("POST", "/api/auth/setup", {
+      body: { password: "first-pass" },
+    }),
+  );
+  assertEquals(missingHeader.status, 403);
+
+  const wrongToken = await handler(
+    makeReq("POST", "/api/auth/setup", {
+      headers: { "X-Setup-Token": "wrong-token" },
+      body: { password: "first-pass" },
+    }),
+  );
+  assertEquals(wrongToken.status, 403);
+
+  const wrongContentType = await handler(
+    new Request(`${BASE}/api/auth/setup`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain",
+        "X-Setup-Token": "test-setup-token",
+      },
+      body: JSON.stringify({ password: "first-pass" }),
+    }),
+  );
+  assertEquals(wrongContentType.status, 415);
+
+  const setupRes = await handler(
+    makeReq("POST", "/api/auth/setup", {
+      headers: { "X-Setup-Token": "test-setup-token" },
+      body: { password: "first-pass" },
+    }),
+  );
+  assertEquals(setupRes.status, 200);
+  const body = await setupRes.json();
+  assertEquals(body.success, true);
+  assertMatch(body.token, /^[0-9a-f-]{36}$/);
+
+  kv.close();
+});
+
+Deno.test("integration: login rejects non-JSON request bodies", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  await setupAuth(handler);
+
+  const res = await handler(
+    new Request(`${BASE}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({ password: "test1234" }),
+    }),
+  );
+  assertEquals(res.status, 415);
+
+  kv.close();
+});
+
 Deno.test("integration: concurrent first-time auth setup creates one admin token", async () => {
   const kv = await setupKv();
   const handler = buildHandler();
 
   const responses = await Promise.all([
     handler(
-      makeReq("POST", "/api/auth/setup", { body: { password: "first-pass" } }),
+      makeReq("POST", "/api/auth/setup", {
+        headers: { "X-Setup-Token": "test-setup-token" },
+        body: { password: "first-pass" },
+      }),
     ),
     handler(
-      makeReq("POST", "/api/auth/setup", { body: { password: "second-pass" } }),
+      makeReq("POST", "/api/auth/setup", {
+        headers: { "X-Setup-Token": "wrong-token" },
+        body: { password: "second-pass" },
+      }),
     ),
   ]);
   const statuses = responses.map((res) => res.status).sort((a, b) => a - b);
-  assertEquals(statuses, [200, 400]);
+  assertEquals(statuses, [200, 403]);
 
   const bodies = await Promise.all(responses.map((res) => res.json()));
   const successBodies = bodies.filter((body) => body.success === true);
@@ -154,12 +239,44 @@ Deno.test("integration: concurrent first-time auth setup creates one admin token
   kv.close();
 });
 
+Deno.test("integration: setup wrong-token requests do not consume rate-limit bucket", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+
+  // Saturate the global admin-auth bucket (5 / 60s) using bogus
+  // X-Setup-Token requests. With the cheap-checks-before-rate-limit
+  // ordering these must NOT count toward the bucket, so the legitimate
+  // setup that follows still succeeds.
+  for (let i = 0; i < 20; i++) {
+    const res = await handler(
+      makeReq("POST", "/api/auth/setup", {
+        headers: { "X-Setup-Token": `bogus-${i}` },
+        body: { password: "first-pass" },
+      }),
+    );
+    assertEquals(res.status, 403);
+  }
+
+  const setupRes = await handler(
+    makeReq("POST", "/api/auth/setup", {
+      headers: { "X-Setup-Token": "test-setup-token" },
+      body: { password: "first-pass" },
+    }),
+  );
+  assertEquals(setupRes.status, 200);
+
+  kv.close();
+});
+
 Deno.test("integration: auth rate limit ignores spoofed forwarding headers", async () => {
   const kv = await setupKv();
   const handler = buildHandler();
 
   await handler(
-    makeReq("POST", "/api/auth/setup", { body: { password: "test1234" } }),
+    makeReq("POST", "/api/auth/setup", {
+      headers: { "X-Setup-Token": "test-setup-token" },
+      body: { password: "test1234" },
+    }),
   );
 
   for (let i = 0; i < 4; i++) {
@@ -872,6 +989,77 @@ Deno.test("integration: OPTIONS returns correct CORS headers", async () => {
     adminOpts.headers.get("Access-Control-Allow-Methods"),
     ADMIN_CORS_HEADERS["Access-Control-Allow-Methods"],
   );
+
+  kv.close();
+});
+
+Deno.test("integration: admin JSON responses do not expose open CORS", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  const setupRes = await handler(
+    makeReq("POST", "/api/auth/setup", {
+      headers: { "X-Setup-Token": "test-setup-token" },
+      body: { password: "test1234" },
+    }),
+  );
+  assertEquals(setupRes.headers.has("Access-Control-Allow-Origin"), false);
+
+  const { token } = await setupRes.json();
+  const statsRes = await handler(
+    makeReq("GET", "/api/stats", { headers: { "X-Admin-Token": token } }),
+  );
+  assertEquals(statsRes.status, 200);
+  assertEquals(statsRes.headers.has("Access-Control-Allow-Origin"), false);
+
+  const modelsRes = await handler(makeReq("GET", "/v1/models"));
+  assertEquals(modelsRes.status, 200);
+  assertEquals(
+    modelsRes.headers.get("Access-Control-Allow-Origin"),
+    CORS_HEADERS["Access-Control-Allow-Origin"],
+  );
+
+  kv.close();
+});
+
+Deno.test("integration: unauthenticated root HTML contains no KV-derived stats", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  const token = await setupAuth(handler);
+
+  await handler(
+    makeReq("POST", "/api/keys", {
+      headers: { "X-Admin-Token": token },
+      body: { key: "sk-root-stats" },
+    }),
+  );
+
+  const res = await handler(makeReq("GET", "/"));
+  assertEquals(res.status, 200);
+  const html = await res.text();
+  assertStringIncludes(html, 'id="statTotalKeys">—</div>');
+  assertStringIncludes(html, 'id="statActiveKeys">—</div>');
+  assertStringIncludes(html, 'id="statTotalRequests">—</div>');
+  assertStringIncludes(
+    html,
+    'id="authBadge" class="auth-badge auth-unknown">登录后加载</span>',
+  );
+  assertStringIncludes(html, 'id="keyCountLabel">—/');
+  assertEquals(html.includes("sk-root-stats"), false);
+  assertEquals(
+    html.includes('id="authBadge" class="auth-badge auth-on"'),
+    false,
+  );
+  assertEquals(
+    html.includes('id="authBadge" class="auth-badge auth-off"'),
+    false,
+  );
+
+  const statsRes = await handler(
+    makeReq("GET", "/api/stats", { headers: { "X-Admin-Token": token } }),
+  );
+  const stats = await statsRes.json();
+  assertEquals(stats.totalKeys, 1);
+  assertEquals(stats.activeKeys, 1);
 
   kv.close();
 });

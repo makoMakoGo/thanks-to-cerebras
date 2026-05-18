@@ -1,15 +1,25 @@
-import { CORS_HEADERS, NO_CACHE_HEADERS } from "./constants.ts";
+import {
+  ADMIN_CORS_HEADERS,
+  CORS_HEADERS,
+  NO_CACHE_HEADERS,
+} from "./constants.ts";
 
 export function jsonResponse(
   data: unknown,
-  options: { status?: number; headers?: HeadersInit } = {},
+  options: {
+    status?: number;
+    headers?: HeadersInit;
+    cors?: "admin" | "proxy";
+  } = {},
 ): Response {
+  const corsHeaders = options.cors === "admin"
+    ? ADMIN_CORS_HEADERS
+    : CORS_HEADERS;
   const headers = new Headers({
-    ...CORS_HEADERS,
+    ...corsHeaders,
     ...NO_CACHE_HEADERS,
     "Content-Type": "application/json",
   });
-
   if (options.headers) {
     new Headers(options.headers).forEach((value, key) => {
       headers.set(key, value);
@@ -27,7 +37,27 @@ export function jsonError(
   status = 400,
   headers?: HeadersInit,
 ): Response {
-  return jsonResponse({ error: message }, { status, headers });
+  return jsonResponse({ error: message }, { status, headers, cors: "proxy" });
+}
+
+export function adminJsonResponse(
+  data: unknown,
+  options: { status?: number; headers?: HeadersInit } = {},
+): Response {
+  return jsonResponse(data, { ...options, cors: "admin" });
+}
+
+export function adminProblemResponse(
+  detail: string,
+  options: {
+    status?: number;
+    title?: string;
+    type?: string;
+    instance?: string;
+    headers?: HeadersInit;
+  } = {},
+): Response {
+  return problemResponse(detail, { ...options, cors: "admin" });
 }
 
 export function problemTitle(status: number): string {
@@ -59,6 +89,7 @@ export function problemResponse(
     type?: string;
     instance?: string;
     headers?: HeadersInit;
+    cors?: "admin" | "proxy";
   } = {},
 ): Response {
   const status = options.status ?? 400;
@@ -78,6 +109,6 @@ export function problemResponse(
       detail,
       ...(options.instance ? { instance: options.instance } : {}),
     },
-    { status, headers },
+    { status, headers, cors: options.cors },
   );
 }

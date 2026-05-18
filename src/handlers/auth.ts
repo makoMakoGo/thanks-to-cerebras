@@ -1,4 +1,4 @@
-import { jsonResponse, problemResponse } from "../http.ts";
+import { adminJsonResponse, adminProblemResponse } from "../http.ts";
 import {
   createAdminToken,
   deleteAdminToken,
@@ -7,6 +7,7 @@ import {
   verifyAdminPassword,
   verifyAdminToken,
 } from "../auth.ts";
+import { compareSecret } from "../crypto.ts";
 import { loginLimiter } from "../rate-limit.ts";
 import { metrics } from "../metrics.ts";
 import type { Router } from "../router.ts";
@@ -25,19 +26,48 @@ async function getAuthStatus(req: Request): Promise<Response> {
   const hasPassword = (await getAdminPassword()) !== null;
   const token = req.headers.get("X-Admin-Token");
   const isLoggedIn = await verifyAdminToken(token);
-  return jsonResponse({ hasPassword, isLoggedIn });
+  return adminJsonResponse({ hasPassword, isLoggedIn });
 }
 
 /**
  * Handles first-run password setup while preserving the single-admin invariant.
+ *
+ * Cheap, side-effect-free checks (Content-Type, SETUP_TOKEN configuration,
+ * X-Setup-Token match) run BEFORE the rate-limit bucket is consumed. This
+ * prevents an unauthenticated attacker from filling the global setup
+ * bucket with bogus requests and DoS-ing the legitimate admin during the
+ * first-run window.
  */
 async function setupAuth(req: Request): Promise<Response> {
+  const contentType = req.headers.get("Content-Type");
+  if (!contentType || !contentType.toLowerCase().includes("application/json")) {
+    return adminProblemResponse("请求体必须是 application/json", {
+      status: 415,
+      instance: "/api/auth/setup",
+    });
+  }
+
+  const setupToken = Deno.env.get("SETUP_TOKEN");
+  if (!setupToken) {
+    return adminProblemResponse("SETUP_TOKEN 未配置，禁止首次初始化", {
+      status: 503,
+      instance: "/api/auth/setup",
+    });
+  }
+  const providedToken = req.headers.get("X-Setup-Token") ?? "";
+  if (!(await compareSecret(providedToken, setupToken))) {
+    return adminProblemResponse("初始化令牌错误", {
+      status: 403,
+      instance: "/api/auth/setup",
+    });
+  }
+
   const key = getRateLimitKey(req);
   const limit = loginLimiter.check(key);
   if (!limit.allowed) {
     metrics.inc("rate_limit_hits_total", "setup");
     const retryAfter = Math.ceil(limit.retryAfterMs / 1000);
-    return problemResponse("请求过于频繁", {
+    return adminProblemResponse("请求过于频繁", {
       status: 429,
       instance: "/api/auth/setup",
       headers: { "Retry-After": String(retryAfter) },
@@ -46,31 +76,32 @@ async function setupAuth(req: Request): Promise<Response> {
 
   const hasPassword = (await getAdminPassword()) !== null;
   if (hasPassword) {
-    return problemResponse("密码已设置", {
+    return adminProblemResponse("密码已设置", {
       status: 400,
       instance: "/api/auth/setup",
     });
   }
+
   try {
     const { password } = await req.json();
-    if (!password || password.length < 4) {
-      return problemResponse("密码至少 4 位", {
+    if (typeof password !== "string" || password.length < 4) {
+      return adminProblemResponse("密码至少 4 位", {
         status: 400,
         instance: "/api/auth/setup",
       });
     }
     const created = await setAdminPasswordIfUnset(password);
     if (!created) {
-      return problemResponse("密码已设置", {
+      return adminProblemResponse("密码已设置", {
         status: 400,
         instance: "/api/auth/setup",
       });
     }
     const token = await createAdminToken();
-    return jsonResponse({ success: true, token });
+    return adminJsonResponse({ success: true, token });
   } catch (error) {
     console.error("[AUTH] setup error:", error);
-    return problemResponse("请求处理失败", {
+    return adminProblemResponse("请求处理失败", {
       status: 400,
       instance: "/api/auth/setup",
     });
@@ -86,27 +117,40 @@ async function loginAuth(req: Request): Promise<Response> {
   if (!limit.allowed) {
     metrics.inc("rate_limit_hits_total", "login");
     const retryAfter = Math.ceil(limit.retryAfterMs / 1000);
-    return problemResponse("请求过于频繁", {
+    return adminProblemResponse("请求过于频繁", {
       status: 429,
       instance: "/api/auth/login",
       headers: { "Retry-After": String(retryAfter) },
     });
   }
 
+  const contentType = req.headers.get("Content-Type");
+  if (!contentType || !contentType.toLowerCase().includes("application/json")) {
+    return adminProblemResponse("请求体必须是 application/json", {
+      status: 415,
+      instance: "/api/auth/login",
+    });
+  }
   try {
     const { password } = await req.json();
+    if (typeof password !== "string") {
+      return adminProblemResponse("密码格式错误", {
+        status: 400,
+        instance: "/api/auth/login",
+      });
+    }
     const valid = await verifyAdminPassword(password);
     if (!valid) {
-      return problemResponse("密码错误", {
+      return adminProblemResponse("密码错误", {
         status: 401,
         instance: "/api/auth/login",
       });
     }
     const token = await createAdminToken();
-    return jsonResponse({ success: true, token });
+    return adminJsonResponse({ success: true, token });
   } catch (error) {
     console.error("[AUTH] login error:", error);
-    return problemResponse("请求处理失败", {
+    return adminProblemResponse("请求处理失败", {
       status: 400,
       instance: "/api/auth/login",
     });
@@ -121,7 +165,7 @@ async function logoutAuth(req: Request): Promise<Response> {
   if (token) {
     await deleteAdminToken(token);
   }
-  return jsonResponse({ success: true });
+  return adminJsonResponse({ success: true });
 }
 
 /**

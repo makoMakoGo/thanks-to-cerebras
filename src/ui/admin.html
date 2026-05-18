@@ -115,6 +115,7 @@
     .auth-badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 500; margin-left: 8px; }
     body .auth-on, body.light .auth-on { background: rgba(22, 163, 74, 0.12); color: #16a34a; }
     body .auth-off, body.light .auth-off { background: rgba(202, 138, 4, 0.12); color: #ca8a04; }
+    body .auth-unknown, body.light .auth-unknown { background: rgba(100, 116, 139, 0.12); color: #64748b; }
     body .footer, body.light .footer { text-align: center; margin-top: 20px; font-size: 11px; color: #64748b; }
     body .footer span, body.light .footer span { color: #06b6d4; }
     body #authOverlay, body.light #authOverlay {
@@ -175,6 +176,7 @@
     body.dark .section-title { color: #94a3b8; }
     body.dark .auth-on { background: rgba(74, 222, 128, 0.15); color: #4ade80; }
     body.dark .auth-off { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+    body.dark .auth-unknown { background: rgba(148, 163, 184, 0.12); color: #94a3b8; }
     body.dark .footer { color: #475569; }
     body.dark #authOverlay {
       background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
@@ -432,7 +434,9 @@
         if (password.length < 4) { showAuthError('密码至少 4 位'); return; }
         if (password !== confirm) { showAuthError('两次密码不一致'); return; }
         try {
-          const res = await fetch('/api/auth/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
+          const setupToken = prompt('请输入部署侧 SETUP_TOKEN');
+          if (!setupToken) { showAuthError('需要 SETUP_TOKEN 才能首次初始化'); return; }
+          const res = await fetch('/api/auth/setup', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Setup-Token': setupToken }, body: JSON.stringify({ password }) });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) {
             showAuthError(getApiErrorMessage(res, data) || '设置失败');
@@ -874,6 +878,7 @@
         const statActiveEl = document.getElementById('statActiveKeys');
         if (statTotalEl) statTotalEl.textContent = String(totalKeys);
         if (statActiveEl) statActiveEl.textContent = String(activeKeys);
+        loadStats();
 
         const container = document.getElementById('keysContainer');
         if (data.keys?.length > 0) {
@@ -1028,6 +1033,20 @@
           container.appendChild(empty);
         }
       } catch (e) { showNotification('加载失败: ' + formatClientError(e), 'error'); }
+
+    }
+    async function loadStats() {
+      try {
+        const res = await fetch('/api/stats', { headers: getAuthHeaders() });
+        const data = await res.json().catch(() => ({}));
+        if (handleUnauthorized(res)) return;
+        if (!res.ok) {
+          showNotification('加载统计失败: ' + getApiErrorMessage(res, data), 'error');
+          return;
+        }
+        const statTotalRequestsEl = document.getElementById('statTotalRequests');
+        if (statTotalRequestsEl) statTotalRequestsEl.textContent = String(data.totalRequests ?? '—');
+      } catch (e) { showNotification('加载统计失败: ' + formatClientError(e), 'error'); }
     }
 
     async function copyKey(id) {
