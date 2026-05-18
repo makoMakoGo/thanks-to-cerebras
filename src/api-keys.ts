@@ -29,6 +29,9 @@ export function getNextApiKeyFast(
 
     const keyEntry = state.cachedKeysById.get(id);
     if (!keyEntry || keyEntry.status !== "active") continue;
+    if (!keyEntry.key) {
+      throw new Error(`API key ${id} 未解密`);
+    }
 
     state.cachedCursor = (idx + 1) % state.cachedActiveKeyIds.length;
 

@@ -6,7 +6,7 @@ import {
 } from "./constants.ts";
 import { hashPassword, verifyPbkdf2Password } from "./crypto.ts";
 import { state } from "./state.ts";
-import { kvGetAllProxyKeys } from "./kv/proxy-keys.ts";
+import { findProxyKeyIdBySecret, kvGetAllProxyKeys } from "./kv/proxy-keys.ts";
 import type { ProxyAuthKey } from "./types.ts";
 
 // Admin password management
@@ -91,14 +91,8 @@ export async function isAdminAuthorized(req: Request): Promise<boolean> {
 /**
  * Finds the cached proxy-key id for an opaque bearer token.
  */
-function findProxyKeyByToken(
-  keys: Map<string, ProxyAuthKey>,
-  token: string,
-): string | null {
-  for (const [id, pk] of keys) {
-    if (pk.key === token) return id;
-  }
-  return null;
+async function findProxyKeyByToken(token: string): Promise<string | null> {
+  return await findProxyKeyIdBySecret(token);
 }
 
 async function loadProxyKeyCache(): Promise<Map<string, ProxyAuthKey>> {
@@ -152,12 +146,12 @@ export async function isProxyAuthorized(
 
   const token = authHeader.substring(7).trim();
 
-  const match = findProxyKeyByToken(keys, token);
+  const match = await findProxyKeyByToken(token);
   if (match) return { authorized: true, keyId: match };
 
   if (shouldRefreshProxyKeyCache()) {
-    keys = await refreshProxyKeyCache();
-    const retryMatch = findProxyKeyByToken(keys, token);
+    await refreshProxyKeyCache();
+    const retryMatch = await findProxyKeyByToken(token);
     if (retryMatch) return { authorized: true, keyId: retryMatch };
   }
 

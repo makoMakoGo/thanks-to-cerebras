@@ -14,14 +14,16 @@ docker compose up -d
 
 默认访问 `http://localhost:8339` 进入管理面板。
 
-首次初始化前必须配置 `SETUP_TOKEN`：
+首次初始化前必须配置 `SETUP_TOKEN` 和 `KEY_ENCRYPTION_SECRET`：
 
 ```yaml
 environment:
   - SETUP_TOKEN=<高熵随机字符串>
+  - KEY_ENCRYPTION_SECRET=<高熵随机字符串>
 ```
 
-访问管理面板后输入该令牌并设置管理密码。
+访问管理面板后输入初始化令牌并设置管理密码。`KEY_ENCRYPTION_SECRET` 用于加密
+Cerebras API key 与计算代理密钥 HMAC，丢失后无法解密或校验已存密钥。
 
 ## 端口配置
 

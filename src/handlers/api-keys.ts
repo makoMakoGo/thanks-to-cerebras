@@ -4,7 +4,7 @@ import {
   kvAddKey,
   kvDeleteKey,
   kvGetAllKeys,
-  kvGetApiKeyById,
+  kvMigrateApiKeysToEncrypted,
 } from "../kv/api-keys.ts";
 import { testKey } from "../services/api-keys.ts";
 import type { Router } from "../router.ts";
@@ -12,11 +12,14 @@ import type { Router } from "../router.ts";
 async function listApiKeys(): Promise<Response> {
   const keys = await kvGetAllKeys();
   keys.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
-  const maskedKeys = keys.map((k) => ({
-    ...k,
-    key: maskKey(k.key),
+  const keyMetadata = keys.map((k) => ({
+    id: k.id,
+    useCount: k.useCount,
+    lastUsed: k.lastUsed,
+    status: k.status,
+    createdAt: k.createdAt,
   }));
-  return adminJsonResponse({ keys: maskedKeys });
+  return adminJsonResponse({ keys: keyMetadata });
 }
 
 async function addApiKey(req: Request): Promise<Response> {
@@ -101,25 +104,21 @@ async function batchImportApiKeys(req: Request): Promise<Response> {
   }
 }
 
-async function exportAllApiKeys(): Promise<Response> {
-  const keys = await kvGetAllKeys();
-  keys.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
-  const rawKeys = keys.map((k) => k.key);
-  return adminJsonResponse({ keys: rawKeys });
+function exportAllApiKeys(): Response {
+  return adminProblemResponse("密钥明文导出已禁用", {
+    status: 403,
+    instance: "/api/keys/export",
+  });
 }
 
-async function exportApiKey(
+function exportApiKey(
   _req: Request,
   params: Record<string, string>,
-): Promise<Response> {
-  const keyEntry = await kvGetApiKeyById(params.id);
-  if (!keyEntry) {
-    return adminProblemResponse("密钥不存在", {
-      status: 404,
-      instance: `/api/keys/${params.id}/export`,
-    });
-  }
-  return adminJsonResponse({ key: keyEntry.key });
+): Response {
+  return adminProblemResponse("密钥明文导出已禁用", {
+    status: 403,
+    instance: `/api/keys/${params.id}/export`,
+  });
 }
 
 async function deleteApiKey(
@@ -143,11 +142,17 @@ async function testApiKey(
   return adminJsonResponse(await testKey(params.id));
 }
 
+async function migrateApiKeys(): Promise<Response> {
+  const migrated = await kvMigrateApiKeysToEncrypted();
+  return adminJsonResponse({ success: true, migrated });
+}
+
 export function register(router: Router): void {
   router
     .get("/api/keys", listApiKeys)
     .post("/api/keys", addApiKey)
     .post("/api/keys/batch", batchImportApiKeys)
+    .post("/api/keys/migrate", migrateApiKeys)
     .get("/api/keys/export", exportAllApiKeys)
     .get("/api/keys/:id/export", exportApiKey)
     .delete("/api/keys/:id", deleteApiKey)

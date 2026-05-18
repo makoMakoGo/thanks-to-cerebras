@@ -98,19 +98,22 @@
 ### 4.1 代理访问密钥（Proxy Keys）
 
 - `GET /api/proxy-keys`
-  - 返回：密钥列表（key 会做
-    mask）、`maxKeys`、`authEnabled`、`proxyPublicAccess`
+  - 返回：密钥元数据列表（不包含明文
+    key）、`maxKeys`、`authEnabled`、`proxyPublicAccess`
 - `POST /api/proxy-keys`
   - 请求体：`{ "name": string }`（可选）
   - 成功：返回新创建的密钥（返回体中会包含一次性明文 key）
 - `DELETE /api/proxy-keys/<id>`
 - `GET /api/proxy-keys/<id>/export`
-  - 返回明文 key（用于复制给客户端）
+  - 返回 `403`；代理密钥只在创建时显示一次
+
+- `POST /api/proxy-keys/migrate`
+  - 将旧 KV 中明文 proxy key 迁移为 HMAC 哈希存储
 
 ### 4.2 Cerebras API 密钥（API Keys）
 
 - `GET /api/keys`
-  - 返回：key 列表（key 会做 mask）
+  - 返回：密钥元数据列表（不包含明文 key）
 - `POST /api/keys`
   - 请求体：`{ "key": string }`
 - `POST /api/keys/batch`
@@ -121,9 +124,11 @@
   - 描述：测活单个 key（会访问上游）
   - 注意：该操作会更新 KV 内该 key 的 `status`
 - `GET /api/keys/export`
-  - 导出全部明文 key
+  - 返回 `403`；明文导出已禁用
 - `GET /api/keys/<id>/export`
-  - 导出单个明文 key
+  - 返回 `403`；明文导出已禁用
+- `POST /api/keys/migrate`
+  - 将旧 KV 中明文 Cerebras API key 迁移为加密存储
 
 ### 4.3 模型池（Models）
 

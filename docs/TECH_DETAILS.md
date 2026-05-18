@@ -16,20 +16,27 @@ Client -> /v1/chat/completions -> Deno Proxy -> Cerebras API
 2. **代理访问密钥** - 控制谁能调用代理 API（最多 5 个）
 3. **Cerebras API 密钥** - 调用上游 Cerebras API
 
+## 密钥存储
+
+`KEY_ENCRYPTION_SECRET` 是密钥存储主密钥：
+
+- Cerebras API key 使用 AES-GCM 加密后写入
+  KV，热路径只在内存缓存中保存解密后的值。
+- 代理访问密钥只在创建响应中返回一次，KV 中只保存 HMAC-SHA-256 哈希。
+- 明文导出接口返回 `403`。旧明文 KV 记录必须通过管理 API 迁移后才能继续使用。
+
 ## 鉴权逻辑
 
 代理访问密钥存储在 KV，默认拒绝未授权访问。只有显式开启公开访问时，才允许无
 Bearer token 调用代理。
 
 ```typescript
-function isProxyAuthorized(req: Request) {
+async function isProxyAuthorized(req: Request) {
   if (cachedConfig.proxyPublicAccess) return { authorized: true };
 
   const token = req.headers.get("Authorization")?.substring(7);
-  for (const pk of cachedProxyKeys.values()) {
-    if (pk.key === token) return { authorized: true, keyId: pk.id };
-  }
-  return { authorized: false };
+  const keyId = await findProxyKeyIdBySecret(token);
+  return keyId ? { authorized: true, keyId } : { authorized: false };
 }
 ```
 
@@ -86,12 +93,12 @@ isolate、冷启动和多区域部署不会各自拥有独立内存窗口。
 
 // Cerebras API 密钥
 [KV_PREFIX, "keys", "api", <id>] -> ApiKey {
-  id, key, useCount, lastUsed, status, createdAt
+  id, encryptedKey, useCount, lastUsed, status, createdAt
 }
 
 // 代理访问密钥
 [KV_PREFIX, "keys", "proxy", <id>] -> ProxyAuthKey {
-  id, key, name, useCount, lastUsed, createdAt
+  id, keyHash, name, useCount, lastUsed, createdAt
 }
 
 // 限流桶

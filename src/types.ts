@@ -1,5 +1,6 @@
 export interface ApiKey {
   id: string;
+  encryptedKey: string;
   key: string;
   useCount: number;
   lastUsed?: number;
@@ -9,7 +10,7 @@ export interface ApiKey {
 
 export interface ProxyAuthKey {
   id: string;
-  key: string;
+  keyHash: string;
   name: string;
   useCount: number;
   lastUsed?: number;
