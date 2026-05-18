@@ -125,13 +125,19 @@ async function refreshProxyKeyCache(): Promise<Map<string, ProxyAuthKey>> {
 }
 
 async function refreshAuthCacheIfChanged(): Promise<void> {
-  if (!shouldRefreshProxyKeyCache()) return;
+  const now = Date.now();
+  if (
+    now - state.authCacheRevisionLastCheckedAt <
+      PROXY_KEY_AUTH_REFRESH_INTERVAL_MS
+  ) {
+    return;
+  }
   const revision = await getAuthCacheRevision();
-  state.authCacheRevisionLastCheckedAt = Date.now();
+  state.authCacheRevisionLastCheckedAt = now;
   if (revision === state.authCacheRevision) return;
-  state.authCacheRevision = revision;
   state.cachedConfig = await kvGetConfig();
   await refreshProxyKeyCache();
+  state.authCacheRevision = revision;
 }
 
 function shouldRefreshProxyKeyCache(): boolean {

@@ -1,4 +1,7 @@
-import { API_KEY_PREFIX } from "./constants.ts";
+import {
+  API_KEY_PREFIX,
+  PROXY_KEY_AUTH_REFRESH_INTERVAL_MS,
+} from "./constants.ts";
 import { toPersistedApiKey } from "./api-key-record.ts";
 import { state } from "./state.ts";
 import { getApiKeyCacheRevision } from "./kv/revisions.ts";
@@ -54,11 +57,18 @@ export function getNextApiKeyFast(
 }
 
 export async function refreshApiKeyCacheIfChanged(): Promise<void> {
+  const now = Date.now();
+  if (
+    now - state.apiKeyCacheRevisionLastCheckedAt <
+      PROXY_KEY_AUTH_REFRESH_INTERVAL_MS
+  ) {
+    return;
+  }
   const revision = await getApiKeyCacheRevision();
-  state.apiKeyCacheRevisionLastCheckedAt = Date.now();
+  state.apiKeyCacheRevisionLastCheckedAt = now;
   if (revision === state.apiKeyCacheRevision) return;
-  state.apiKeyCacheRevision = revision;
   await kvMergeAllApiKeysIntoCache();
+  state.apiKeyCacheRevision = revision;
 }
 
 export function markKeyCooldownFrom429(id: string, response: Response): void {

@@ -1,11 +1,14 @@
 import type { ApiKey } from "../types.ts";
 import { type PersistedApiKey, toPersistedApiKey } from "../api-key-record.ts";
-import { API_KEY_PREFIX } from "../constants.ts";
+import { API_KEY_CACHE_REVISION_KEY, API_KEY_PREFIX } from "../constants.ts";
 import { generateId } from "../utils.ts";
 import { rebuildActiveKeyIds } from "../api-keys.ts";
 import { decryptApiKey, encryptApiKey, isEncryptedApiKey } from "../secrets.ts";
 import { state } from "../state.ts";
-import { bumpApiKeyCacheRevision } from "./revisions.ts";
+import {
+  getNextRevisionValue,
+  recordApiKeyCacheRevision,
+} from "./revisions.ts";
 
 type LegacyApiKey = Omit<ApiKey, "encryptedKey"> & { key: string };
 
@@ -156,10 +159,19 @@ export async function kvAddKey(
     createdAt,
   };
 
-  await state.kv.set([...API_KEY_PREFIX, id], toPersistedApiKey(newKey));
+  const revisionEntry = await state.kv.get<number>(API_KEY_CACHE_REVISION_KEY);
+  const revision = getNextRevisionValue(revisionEntry);
+  const result = await state.kv.atomic()
+    .check(revisionEntry)
+    .set([...API_KEY_PREFIX, id], toPersistedApiKey(newKey))
+    .set(API_KEY_CACHE_REVISION_KEY, revision)
+    .commit();
+  if (!result.ok) {
+    return { success: false, error: "密钥保存失败，请重试" };
+  }
   state.cachedKeysById.set(id, newKey);
   rebuildActiveKeyIds();
-  await bumpApiKeyCacheRevision();
+  recordApiKeyCacheRevision(revision);
 
   return { success: true, id };
 }
@@ -173,12 +185,22 @@ export async function kvDeleteKey(
     return { success: false, error: "密钥不存在" };
   }
 
-  await state.kv.delete(key);
+  const revisionEntry = await state.kv.get<number>(API_KEY_CACHE_REVISION_KEY);
+  const revision = getNextRevisionValue(revisionEntry);
+  const deleteResult = await state.kv.atomic()
+    .check(result)
+    .check(revisionEntry)
+    .delete(key)
+    .set(API_KEY_CACHE_REVISION_KEY, revision)
+    .commit();
+  if (!deleteResult.ok) {
+    return { success: false, error: "密钥删除失败，请重试" };
+  }
   state.cachedKeysById.delete(id);
   state.keyCooldownUntil.delete(id);
   state.dirtyKeyIds.delete(id);
   rebuildActiveKeyIds();
-  await bumpApiKeyCacheRevision();
+  recordApiKeyCacheRevision(revision);
   return { success: true };
 }
 
@@ -191,8 +213,18 @@ export async function kvUpdateKey(
     (await kvGetApiKeyById(id));
   if (!existing) return;
   const updated = { ...existing, ...updates };
-  await state.kv.set(key, toPersistedApiKey(updated));
+  const entry = await state.kv.get<PersistedApiKey>(key);
+  if (!entry.value) return;
+  const revisionEntry = await state.kv.get<number>(API_KEY_CACHE_REVISION_KEY);
+  const revision = getNextRevisionValue(revisionEntry);
+  const result = await state.kv.atomic()
+    .check(entry)
+    .check(revisionEntry)
+    .set(key, toPersistedApiKey(updated))
+    .set(API_KEY_CACHE_REVISION_KEY, revision)
+    .commit();
+  if (!result.ok) throw new Error("密钥更新失败：KV 写入冲突");
   state.cachedKeysById.set(id, updated);
   rebuildActiveKeyIds();
-  await bumpApiKeyCacheRevision();
+  recordApiKeyCacheRevision(revision);
 }

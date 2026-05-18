@@ -634,7 +634,10 @@ Deno.test("integration: proxy auth refreshes stale cache after revocation revisi
       headers: { "X-Admin-Token": token },
     }),
   );
-  state.cachedProxyKeys?.set(id, {
+  if (!state.cachedProxyKeys) {
+    throw new Error("proxy key cache not initialized");
+  }
+  state.cachedProxyKeys.set(id, {
     id,
     keyHash: await hashProxyKey(key),
     name: "stale",
@@ -643,6 +646,7 @@ Deno.test("integration: proxy auth refreshes stale cache after revocation revisi
   });
   state.proxyKeyCacheLastLoadedAt = 0;
   state.authCacheRevision = 0;
+  state.authCacheRevisionLastCheckedAt = 0;
 
   const auth = await isProxyAuthorized(
     makeReq("POST", "/v1/chat/completions", {
@@ -752,10 +756,10 @@ Deno.test("integration: proxy key creation errors do not expose stack traces", a
   const kv = await setupKv();
   const handler = buildHandler();
   const token = await setupAuth(handler);
-  const originalSet = state.kv.set;
-  state.kv.set = (() => {
+  const originalAtomic = state.kv.atomic;
+  state.kv.atomic = (() => {
     throw new Error("database password leaked");
-  }) as typeof state.kv.set;
+  }) as typeof state.kv.atomic;
 
   try {
     const res = await handler(
@@ -771,7 +775,7 @@ Deno.test("integration: proxy key creation errors do not expose stack traces", a
     assertEquals(bodyText.includes("Error:"), false);
     assertEquals(bodyText.includes("at "), false);
   } finally {
-    state.kv.set = originalSet;
+    state.kv.atomic = originalAtomic;
     kv.close();
   }
 });
@@ -990,6 +994,7 @@ Deno.test("integration: public access cache refreshes after config revision", as
   state.cachedConfig!.proxyPublicAccess = true;
   state.proxyKeyCacheLastLoadedAt = 0;
   state.authCacheRevision = 0;
+  state.authCacheRevisionLastCheckedAt = 0;
 
   const auth = await isProxyAuthorized(
     makeReq("POST", "/v1/chat/completions"),
@@ -1280,10 +1285,52 @@ Deno.test("integration: API key cache evicts stale deleted keys after revision",
     Date.now(),
   );
   state.apiKeyCacheRevision = 0;
+  state.apiKeyCacheRevisionLastCheckedAt = 0;
   await refreshApiKeyCacheIfChanged();
 
   assertEquals(state.cachedKeysById.has(apiKeyId), false);
   assertEquals(state.cachedActiveKeyIds.includes(apiKeyId), false);
+
+  kv.close();
+});
+
+Deno.test("integration: API key revision refresh retries after merge failure", async () => {
+  const kv = await setupKv();
+  await addActiveApiKey("sk-retry-secret");
+  const [apiKeyId] = state.cachedActiveKeyIds;
+
+  await kv.delete([...API_KEY_PREFIX, apiKeyId]);
+  await kv.set(
+    ["cerebras-proxy", "meta", "api_key_cache_revision"],
+    Date.now(),
+  );
+  state.apiKeyCacheRevision = 0;
+  state.apiKeyCacheRevisionLastCheckedAt = 0;
+
+  const originalList = state.kv.list.bind(state.kv);
+  let failed = false;
+  state.kv.list = ((
+    selector: Deno.KvListSelector,
+    options?: Deno.KvListOptions,
+  ) => {
+    if (!failed) {
+      failed = true;
+      throw new Error("transient list failure");
+    }
+    return originalList(selector, options);
+  }) as typeof state.kv.list;
+
+  await assertRejects(
+    () => refreshApiKeyCacheIfChanged(),
+    Error,
+    "transient list failure",
+  );
+  assertEquals(state.apiKeyCacheRevision, 0);
+  state.kv.list = originalList;
+  state.apiKeyCacheRevisionLastCheckedAt = 0;
+
+  await refreshApiKeyCacheIfChanged();
+  assertEquals(state.cachedKeysById.has(apiKeyId), false);
 
   kv.close();
 });

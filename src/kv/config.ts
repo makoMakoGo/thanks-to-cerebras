@@ -1,5 +1,6 @@
 import type { ProxyConfig } from "../types.ts";
 import {
+  AUTH_CACHE_REVISION_KEY,
   CONFIG_KEY,
   DEFAULT_KV_FLUSH_INTERVAL_MS,
   DEFAULT_MODEL_POOL,
@@ -8,7 +9,7 @@ import {
 import { normalizeKvFlushIntervalMs } from "../utils.ts";
 import { normalizeModelPool } from "../models.ts";
 import { state } from "../state.ts";
-import { bumpAuthCacheRevision } from "./revisions.ts";
+import { getNextRevisionValue, recordAuthCacheRevision } from "./revisions.ts";
 
 export function resolveKvFlushIntervalMs(config: ProxyConfig | null): number {
   const ms = config?.kvFlushIntervalMs ?? DEFAULT_KV_FLUSH_INTERVAL_MS;
@@ -129,16 +130,24 @@ export async function kvUpdateConfig(
       return entry.value;
     }
     const validatedConfig = validateProxyConfig(nextConfig);
-    const result = await state.kv
+    let atomic = state.kv
       .atomic()
       .check(entry)
-      .set(CONFIG_KEY, validatedConfig)
-      .commit();
+      .set(CONFIG_KEY, validatedConfig);
+    let nextRevision: number | null = null;
+    const shouldBumpAuthRevision =
+      validatedConfig.proxyPublicAccess !== entry.value.proxyPublicAccess;
+    if (shouldBumpAuthRevision) {
+      const revisionEntry = await state.kv.get<number>(AUTH_CACHE_REVISION_KEY);
+      nextRevision = getNextRevisionValue(revisionEntry);
+      atomic = atomic
+        .check(revisionEntry)
+        .set(AUTH_CACHE_REVISION_KEY, nextRevision);
+    }
+    const result = await atomic.commit();
     if (result.ok) {
       state.cachedConfig = validatedConfig;
-      if (validatedConfig.proxyPublicAccess !== entry.value.proxyPublicAccess) {
-        await bumpAuthCacheRevision();
-      }
+      if (nextRevision !== null) recordAuthCacheRevision(nextRevision);
       return validatedConfig;
     }
     const baseMs = Math.min(10 * 2 ** attempt, 500);

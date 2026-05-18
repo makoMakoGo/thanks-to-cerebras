@@ -1,10 +1,14 @@
 import type { ProxyAuthKey } from "../types.ts";
-import { MAX_PROXY_KEYS, PROXY_KEY_PREFIX } from "../constants.ts";
+import {
+  AUTH_CACHE_REVISION_KEY,
+  MAX_PROXY_KEYS,
+  PROXY_KEY_PREFIX,
+} from "../constants.ts";
 import { generateProxyKey } from "../keys.ts";
 import { generateId } from "../utils.ts";
 import { hashProxyKey, isHashedProxyKey } from "../secrets.ts";
 import { state } from "../state.ts";
-import { bumpAuthCacheRevision } from "./revisions.ts";
+import { getNextRevisionValue, recordAuthCacheRevision } from "./revisions.ts";
 
 type LegacyProxyAuthKey = Omit<ProxyAuthKey, "keyHash"> & { key: string };
 
@@ -132,9 +136,18 @@ export async function kvAddProxyKey(
     createdAt: Date.now(),
   };
 
-  await state.kv.set([...PROXY_KEY_PREFIX, id], newKey);
+  const revisionEntry = await state.kv.get<number>(AUTH_CACHE_REVISION_KEY);
+  const revision = getNextRevisionValue(revisionEntry);
+  const result = await state.kv.atomic()
+    .check(revisionEntry)
+    .set([...PROXY_KEY_PREFIX, id], newKey)
+    .set(AUTH_CACHE_REVISION_KEY, revision)
+    .commit();
+  if (!result.ok) {
+    return { success: false, error: "代理密钥保存失败，请重试" };
+  }
   cachedKeys.set(id, newKey);
-  await bumpAuthCacheRevision();
+  recordAuthCacheRevision(revision);
 
   return { success: true, id, key };
 }
@@ -148,9 +161,19 @@ export async function kvDeleteProxyKey(
     return { success: false, error: "密钥不存在" };
   }
 
-  await state.kv.delete(key);
+  const revisionEntry = await state.kv.get<number>(AUTH_CACHE_REVISION_KEY);
+  const revision = getNextRevisionValue(revisionEntry);
+  const deleteResult = await state.kv.atomic()
+    .check(result)
+    .check(revisionEntry)
+    .delete(key)
+    .set(AUTH_CACHE_REVISION_KEY, revision)
+    .commit();
+  if (!deleteResult.ok) {
+    return { success: false, error: "代理密钥删除失败，请重试" };
+  }
   state.cachedProxyKeys?.delete(id);
   state.dirtyProxyKeyIds.delete(id);
-  await bumpAuthCacheRevision();
+  recordAuthCacheRevision(revision);
   return { success: true };
 }
