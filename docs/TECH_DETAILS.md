@@ -50,6 +50,15 @@ function isProxyAuthorized(req: Request) {
 - 成功响应保持流式透传；上游非 2xx 响应会丢弃或限长读取
   body，只向客户端返回统一错误结构和白名单响应头。
 
+## 分布式限流
+
+所有限流桶都存储在 Deno KV，使用 atomic check/set 更新并设置 TTL，因此多
+isolate、冷启动和多区域部署不会各自拥有独立内存窗口。
+
+- 管理 setup/login 保持一个固定全局桶，不信任可伪造的 forwarded IP 头。
+- 代理入口同时检查全局桶、单代理密钥桶和未授权请求桶。
+- 限流命中返回 `429`，并带 `Retry-After`。
+
 ## KV 数据结构
 
 ```typescript
@@ -73,6 +82,11 @@ function isProxyAuthorized(req: Request) {
 // 代理访问密钥
 [KV_PREFIX, "keys", "proxy", <id>] -> ProxyAuthKey {
   id, key, name, useCount, lastUsed, createdAt
+}
+
+// 限流桶
+[KV_PREFIX, "rate-limit", <namespace>, <bucket>] -> {
+  count, resetAt
 }
 ```
 
