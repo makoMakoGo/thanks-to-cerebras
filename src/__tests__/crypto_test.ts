@@ -1,11 +1,22 @@
 import { assert, assertEquals } from "@std/assert";
 
 import {
+  compareSecret,
   hashPassword,
   PBKDF2_ITERATIONS,
   verifyPbkdf2Password,
 } from "../crypto.ts";
 
+Deno.test("compareSecret - matches only identical secrets", async () => {
+  assertEquals(await compareSecret("setup-token", "setup-token"), true);
+  assertEquals(await compareSecret("setup-token", "setup-tokex"), false);
+  assertEquals(await compareSecret("setup-token", "setup-token-extra"), false);
+});
+
+Deno.test("compareSecret - handles long equal secrets", async () => {
+  const longSecret = "a".repeat(4097);
+  assertEquals(await compareSecret(longSecret, longSecret), true);
+});
 Deno.test("hashPassword - 版本化格式", async () => {
   const password = "test123";
   const hash = await hashPassword(password);

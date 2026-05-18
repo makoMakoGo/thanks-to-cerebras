@@ -7,7 +7,7 @@ import {
   verifyAdminPassword,
   verifyAdminToken,
 } from "../auth.ts";
-import { safeCompare } from "../crypto.ts";
+import { compareSecret } from "../crypto.ts";
 import { loginLimiter } from "../rate-limit.ts";
 import { metrics } from "../metrics.ts";
 import type { Router } from "../router.ts";
@@ -55,7 +55,7 @@ async function setupAuth(req: Request): Promise<Response> {
     });
   }
   const providedToken = req.headers.get("X-Setup-Token") ?? "";
-  if (!safeCompare(providedToken, setupToken)) {
+  if (!(await compareSecret(providedToken, setupToken))) {
     return adminProblemResponse("初始化令牌错误", {
       status: 403,
       instance: "/api/auth/setup",
