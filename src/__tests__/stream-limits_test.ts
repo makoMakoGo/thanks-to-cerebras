@@ -75,6 +75,64 @@ Deno.test("boundProxyResponseBody - rejects response body over byte limit", asyn
   assertEquals(released, true);
 });
 
+Deno.test("boundProxyResponseBody - releases when source cancel rejects", async () => {
+  let released = false;
+  const source = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array([1]));
+    },
+    cancel() {
+      throw new Error("cancel failed");
+    },
+  });
+
+  const reader = boundProxyResponseBody(
+    source,
+    () => {
+      released = true;
+      return Promise.resolve();
+    },
+    { maxBytes: 1024, totalTimeoutMs: 1000, idleTimeoutMs: 1000 },
+  ).getReader();
+
+  assertEquals((await reader.read()).done, false);
+  await assertRejects(
+    () => reader.cancel("client gone"),
+    Error,
+    "cancel failed",
+  );
+
+  assertEquals(released, true);
+});
+
+Deno.test("boundProxyResponseBody - releases when timeout races with pull error", async () => {
+  let readRejected = false;
+  let released = false;
+  const source = new ReadableStream<Uint8Array>({
+    pull() {
+      readRejected = true;
+      throw new Error("read failed");
+    },
+    cancel() {
+      throw new Error("cancel failed");
+    },
+  });
+
+  const reader = boundProxyResponseBody(
+    source,
+    () => {
+      released = true;
+      return Promise.resolve();
+    },
+    { maxBytes: 1024, totalTimeoutMs: 0, idleTimeoutMs: 1000 },
+  ).getReader();
+
+  await assertRejects(() => reader.read(), Error);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assertEquals(readRejected, true);
+  assertEquals(released, true);
+});
 Deno.test("acquireProxyStreamSlots - enforces public bucket concurrency", async () => {
   const kv = await setupKv();
 

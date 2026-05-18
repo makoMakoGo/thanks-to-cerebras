@@ -183,19 +183,35 @@ export function boundProxyResponseBody(
     return releaseOnce();
   }
 
+  function errorController(
+    controller: ReadableStreamDefaultController<Uint8Array>,
+    error: unknown,
+  ): void {
+    try {
+      controller.error(error);
+    } catch (caught) {
+      if (caught instanceof TypeError) return;
+      throw caught;
+    }
+  }
+
   async function fail(
     controller: ReadableStreamDefaultController<Uint8Array>,
     message: string,
     metricLabel: string,
   ): Promise<void> {
+    if (finished) return;
     finished = true;
     clearTimers();
     metrics.inc("proxy_requests_total", metricLabel);
-    controller.error(new Error(message));
     try {
-      await reader.cancel(message);
+      errorController(controller, new Error(message));
     } finally {
-      await releaseOnce();
+      try {
+        await reader.cancel(message);
+      } finally {
+        await releaseOnce();
+      }
     }
   }
 
@@ -234,13 +250,22 @@ export function boundProxyResponseBody(
         controller.enqueue(value);
         scheduleIdle(controller);
       } catch (error) {
-        await finish();
-        controller.error(error);
+        const alreadyFinished = finished;
+        try {
+          if (!alreadyFinished) errorController(controller, error);
+        } finally {
+          await finish();
+        }
       }
     },
     async cancel(reason) {
-      await reader.cancel(reason);
-      await finish();
+      if (finished) return;
+      finished = true;
+      try {
+        await reader.cancel(reason);
+      } finally {
+        await releaseOnce();
+      }
     },
   });
 }
