@@ -20,6 +20,7 @@ export const ADMIN_TOKEN_PREFIX = [KV_PREFIX, "auth", "token"] as const;
 export const KV_ATOMIC_MAX_RETRIES = 10;
 export const MAX_PROXY_KEYS = 5;
 export const MAX_MODEL_NOT_FOUND_RETRIES = 3;
+export const PROXY_KEY_AUTH_REFRESH_INTERVAL_MS = 5000;
 
 // Timeouts
 export const ADMIN_TOKEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days

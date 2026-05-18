@@ -20,6 +20,7 @@ async function ensureProxyKeyCache(): Promise<Map<string, ProxyAuthKey>> {
   const keys = await kvGetAllProxyKeys();
   const next = new Map(keys.map((key) => [key.id, key]));
   state.cachedProxyKeys = next;
+  state.proxyKeyCacheLastLoadedAt = Date.now();
   return next;
 }
 

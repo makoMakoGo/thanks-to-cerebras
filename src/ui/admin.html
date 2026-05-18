@@ -355,6 +355,7 @@
     let modelCatalogState = null;
     let modelPoolDraft = new Set();
     let modelPoolDraftDirty = false;
+    let proxyPublicAccessLoaded = false;
 
     // 主题管理
     function loadTheme() {
@@ -585,7 +586,10 @@
           hint.textContent = '当前生效：' + String(effective ?? '') + 'ms';
         }
         const publicAccess = document.getElementById('proxyPublicAccess');
-        if (publicAccess) publicAccess.checked = data.proxyPublicAccess === true;
+        if (publicAccess) {
+          publicAccess.checked = data.proxyPublicAccess === true;
+          proxyPublicAccessLoaded = true;
+        }
       } catch (e) {
         showNotification('加载配置失败: ' + formatClientError(e), 'error');
       }
@@ -607,14 +611,18 @@
         return;
       }
 
-      const proxyPublicAccess = publicAccess ? publicAccess.checked === true : false;
-      if (proxyPublicAccess && !confirm('公开访问会允许任何人消耗上游额度，确认开启？')) return;
+      const body = { kvFlushIntervalMs: ms };
+      if (proxyPublicAccessLoaded && publicAccess) {
+        const proxyPublicAccess = publicAccess.checked === true;
+        if (proxyPublicAccess && !confirm('公开访问会允许任何人消耗上游额度，确认开启？')) return;
+        body.proxyPublicAccess = proxyPublicAccess;
+      }
 
       try {
         const res = await fetch('/api/config', {
           method: 'PATCH',
           headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-          body: JSON.stringify({ kvFlushIntervalMs: ms, proxyPublicAccess }),
+          body: JSON.stringify(body),
         });
         const data = await res.json().catch(() => ({}));
         if (handleUnauthorized(res)) return;

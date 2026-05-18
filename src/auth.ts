@@ -2,6 +2,7 @@ import {
   ADMIN_PASSWORD_KEY,
   ADMIN_TOKEN_EXPIRY_MS,
   ADMIN_TOKEN_PREFIX,
+  PROXY_KEY_AUTH_REFRESH_INTERVAL_MS,
 } from "./constants.ts";
 import { hashPassword, verifyPbkdf2Password } from "./crypto.ts";
 import { state } from "./state.ts";
@@ -100,6 +101,32 @@ function findProxyKeyByToken(
   return null;
 }
 
+async function loadProxyKeyCache(): Promise<Map<string, ProxyAuthKey>> {
+  const loadedKeys = await kvGetAllProxyKeys();
+  const keys = new Map(loadedKeys.map((k) => [k.id, k]));
+  state.cachedProxyKeys = keys;
+  state.proxyKeyCacheLastLoadedAt = Date.now();
+  return keys;
+}
+
+async function refreshProxyKeyCache(): Promise<Map<string, ProxyAuthKey>> {
+  if (state.proxyKeyCacheRefreshInFlight) {
+    return await state.proxyKeyCacheRefreshInFlight;
+  }
+  const refresh = loadProxyKeyCache();
+  state.proxyKeyCacheRefreshInFlight = refresh;
+  try {
+    return await refresh;
+  } finally {
+    state.proxyKeyCacheRefreshInFlight = null;
+  }
+}
+
+function shouldRefreshProxyKeyCache(): boolean {
+  return Date.now() - state.proxyKeyCacheLastLoadedAt >=
+    PROXY_KEY_AUTH_REFRESH_INTERVAL_MS;
+}
+
 // Proxy authorization
 /**
  * Authorizes proxy requests with fail-closed default access.
@@ -112,9 +139,7 @@ export async function isProxyAuthorized(
   }
   let keys = state.cachedProxyKeys;
   if (keys === null) {
-    const loadedKeys = await kvGetAllProxyKeys();
-    keys = new Map(loadedKeys.map((k) => [k.id, k]));
-    state.cachedProxyKeys = keys;
+    keys = await refreshProxyKeyCache();
   }
   if (keys.size === 0) {
     return { authorized: false };
@@ -130,12 +155,11 @@ export async function isProxyAuthorized(
   const match = findProxyKeyByToken(keys, token);
   if (match) return { authorized: true, keyId: match };
 
-  const loadedKeys = await kvGetAllProxyKeys();
-  keys = new Map(loadedKeys.map((k) => [k.id, k]));
-  state.cachedProxyKeys = keys;
-
-  const retryMatch = findProxyKeyByToken(keys, token);
-  if (retryMatch) return { authorized: true, keyId: retryMatch };
+  if (shouldRefreshProxyKeyCache()) {
+    keys = await refreshProxyKeyCache();
+    const retryMatch = findProxyKeyByToken(keys, token);
+    if (retryMatch) return { authorized: true, keyId: retryMatch };
+  }
 
   return { authorized: false };
 }

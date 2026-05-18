@@ -62,8 +62,11 @@ export function validateProxyConfig(rawValue: unknown): ProxyConfig {
     throwIncompatibleConfig("缺少 kvFlushIntervalMs 或类型错误");
   }
 
-  if (typeof raw.proxyPublicAccess !== "boolean") {
-    throwIncompatibleConfig("缺少 proxyPublicAccess 或类型错误");
+  if (
+    raw.proxyPublicAccess !== undefined &&
+    typeof raw.proxyPublicAccess !== "boolean"
+  ) {
+    throwIncompatibleConfig("proxyPublicAccess 类型错误");
   }
 
   return {
@@ -71,7 +74,7 @@ export function validateProxyConfig(rawValue: unknown): ProxyConfig {
     currentModelIndex: raw.currentModelIndex,
     totalRequests: raw.totalRequests,
     kvFlushIntervalMs: raw.kvFlushIntervalMs,
-    proxyPublicAccess: raw.proxyPublicAccess,
+    proxyPublicAccess: raw.proxyPublicAccess ?? false,
   };
 }
 
@@ -96,6 +99,16 @@ export async function kvEnsureConfigEntry(): Promise<
     throw new Error("KV 配置初始化失败");
   }
   const config = validateProxyConfig(entry.value);
+  if (config !== entry.value) {
+    const result = await state.kv.atomic()
+      .check(entry)
+      .set(CONFIG_KEY, config)
+      .commit();
+    if (!result.ok) throw new Error("KV 配置迁移失败：写入冲突");
+    const migrated = await state.kv.get<ProxyConfig>(CONFIG_KEY);
+    if (!migrated.value) throw new Error("KV 配置迁移失败");
+    return { ...migrated, value: validateProxyConfig(migrated.value) };
+  }
   return { ...entry, value: config } as Deno.KvEntry<ProxyConfig>;
 }
 

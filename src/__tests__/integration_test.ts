@@ -685,6 +685,47 @@ Deno.test("integration: proxy explicit public mode allows requests without keys"
   kv.close();
 });
 
+Deno.test("integration: proxy invalid tokens do not repeatedly reload empty cache", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  const token = await setupAuth(handler);
+  await handler(
+    makeReq("POST", "/api/proxy-keys", {
+      headers: { "X-Admin-Token": token },
+      body: { name: "gate" },
+    }),
+  );
+
+  let listCalls = 0;
+  const originalList = state.kv.list.bind(state.kv);
+  state.kv.list = ((selector, options) => {
+    const prefix = "prefix" in selector ? selector.prefix : null;
+    if (
+      Array.isArray(prefix) && prefix.join("/") === PROXY_KEY_PREFIX.join("/")
+    ) {
+      listCalls++;
+    }
+    return originalList(selector, options);
+  }) as typeof state.kv.list;
+
+  try {
+    const responses = await Promise.all(
+      Array.from({ length: 3 }, (_, i) =>
+        handler(
+          makeReq("POST", "/v1/chat/completions", {
+            headers: { Authorization: `Bearer invalid-token-${i}` },
+            body: { messages: [{ role: "user", content: "hi" }] },
+          }),
+        )),
+    );
+    for (const res of responses) assertEquals(res.status, 401);
+    assertEquals(listCalls, 0);
+  } finally {
+    state.kv.list = originalList;
+    kv.close();
+  }
+});
+
 Deno.test("integration: proxy 401 when proxy key exists but token missing", async () => {
   const kv = await setupKv();
   const handler = buildHandler();

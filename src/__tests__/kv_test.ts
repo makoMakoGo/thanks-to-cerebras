@@ -93,6 +93,11 @@ Deno.test("validateProxyConfig - fails fast when required field missing", () => 
     "请清空 KV 后重启",
   );
 });
+Deno.test("validateProxyConfig - treats missing proxyPublicAccess as closed", () => {
+  const { proxyPublicAccess: _removed, ...legacy } = createMockConfig();
+  const result = validateProxyConfig(legacy);
+  assertEquals(result.proxyPublicAccess, false);
+});
 
 Deno.test("validateProxyConfig - fails fast on invalid kvFlushIntervalMs", () => {
   assertThrows(
