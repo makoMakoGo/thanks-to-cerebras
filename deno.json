@@ -19,7 +19,10 @@
     "lint": "deno lint --rules-include=camelcase main.ts src",
     "naming:check": "deno run --allow-read scripts/naming-check.ts",
     "complexity:check": "deno run --allow-read scripts/complexity-check.ts --max 22",
-    "fmt:check": "deno fmt --check main.ts src",
+    "large-files:check": "deno run --allow-read scripts/large-file-check.ts",
+    "tech-debt:check": "deno run --allow-read scripts/tech-debt-check.ts",
+    "duplicate-code:check": "deno run --allow-read scripts/duplicate-code-check.ts --min-lines 12",
+    "fmt:check": "deno fmt --check main.ts src scripts/*.ts",
     "hooks:install": "git config core.hooksPath .githooks && chmod +x .githooks/pre-commit",
     "docstring:coverage": "deno run --allow-read scripts/docstring-coverage.mjs --threshold 80"
   },

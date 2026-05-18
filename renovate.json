@@ -1,0 +1,81 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    ":semanticCommitTypeAll(chore)",
+    ":prHourlyLimit2",
+    ":prConcurrentLimit5"
+  ],
+  "timezone": "Asia/Shanghai",
+  "schedule": [
+    "before 9am on monday"
+  ],
+  "minimumReleaseAge": "3 days",
+  "labels": [
+    "dependencies"
+  ],
+  "commitMessageTopic": "{{depName}}",
+  "rangeStrategy": "bump",
+  "enabledManagers": [
+    "deno",
+    "docker-compose",
+    "dockerfile",
+    "github-actions"
+  ],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": [
+      "before 9am on monday"
+    ]
+  },
+  "packageRules": [
+    {
+      "description": "Group Deno and JSR dependency updates",
+      "matchManagers": [
+        "deno"
+      ],
+      "groupName": "deno dependencies",
+      "addLabels": [
+        "area: dependencies"
+      ]
+    },
+    {
+      "description": "Group GitHub Actions updates",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "groupName": "github actions",
+      "addLabels": [
+        "area: ci"
+      ]
+    },
+    {
+      "description": "Group Docker image updates",
+      "matchDatasources": [
+        "docker"
+      ],
+      "groupName": "docker images",
+      "addLabels": [
+        "area: docker"
+      ]
+    },
+    {
+      "description": "Automerge low-risk patch updates after CI",
+      "matchUpdateTypes": [
+        "patch"
+      ],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+    {
+      "description": "Require manual review for major updates",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "dependencyDashboardApproval": true
+    }
+  ]
+}

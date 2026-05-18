@@ -25,6 +25,12 @@ jobs:
         run: deno task naming:check
       - name: complexity check
         run: deno task complexity:check
+      - name: large file check
+        run: deno task large-files:check
+      - name: tech debt check
+        run: deno task tech-debt:check
+      - name: duplicate code check
+        run: deno task duplicate-code:check
       - name: deno check
         run: deno task check
       - name: deno test

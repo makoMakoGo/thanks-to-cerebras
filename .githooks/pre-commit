@@ -1,7 +1,23 @@
 #!/usr/bin/env sh
 set -eu
 
-deno task fmt:check
-deno task lint
-deno task naming:check
-deno task check
+staged_files="$(git diff --cached --name-only --diff-filter=ACMR)"
+
+if [ -z "$staged_files" ]; then
+  exit 0
+fi
+
+if printf '%s\n' "$staged_files" | grep -Eq '(^|/)(main\.ts|deno\.json)$|^(src|scripts)/.*\.(ts|js|mjs)$'; then
+  deno task fmt:check
+  deno task lint
+  deno task naming:check
+  deno task check
+fi
+
+if printf '%s\n' "$staged_files" | grep -Eq '(^|/)(deno\.json|deno\.lock)$|^(\.github|src|scripts)/|.*\.(ts|js|mjs|json|ya?ml|html)$'; then
+  deno task large-files:check
+fi
+
+if printf '%s\n' "$staged_files" | grep -Eq '(^|/)(deno\.json|README\.md)$|^(\.github|docs|src|scripts)/|.*\.(ts|js|mjs|json|ya?ml|html|css|md)$'; then
+  deno task tech-debt:check
+fi
