@@ -13,23 +13,35 @@ export async function kvGetAllProxyKeys(): Promise<ProxyAuthKey[]> {
   return keys;
 }
 
+async function ensureProxyKeyCache(): Promise<Map<string, ProxyAuthKey>> {
+  const cached = state.cachedProxyKeys;
+  if (cached !== null) return cached;
+
+  const keys = await kvGetAllProxyKeys();
+  const next = new Map(keys.map((key) => [key.id, key]));
+  state.cachedProxyKeys = next;
+  return next;
+}
+
 export async function kvGetProxyKeyById(
   id: string,
 ): Promise<ProxyAuthKey | null> {
-  const cached = state.cachedProxyKeys.get(id);
+  const cachedKeys = await ensureProxyKeyCache();
+  const cached = cachedKeys.get(id);
   if (cached) return cached;
 
   const entry = await state.kv.get<ProxyAuthKey>([...PROXY_KEY_PREFIX, id]);
   if (!entry.value) return null;
 
-  state.cachedProxyKeys.set(id, entry.value);
+  cachedKeys.set(id, entry.value);
   return entry.value;
 }
 
 export async function kvAddProxyKey(
   name: string,
 ): Promise<{ success: boolean; id?: string; key?: string; error?: string }> {
-  if (state.cachedProxyKeys.size >= MAX_PROXY_KEYS) {
+  const cachedKeys = await ensureProxyKeyCache();
+  if (cachedKeys.size >= MAX_PROXY_KEYS) {
     return {
       success: false,
       error: `最多只能创建 ${MAX_PROXY_KEYS} 个代理密钥`,
@@ -41,13 +53,13 @@ export async function kvAddProxyKey(
   const newKey: ProxyAuthKey = {
     id,
     key,
-    name: name || `密钥 ${state.cachedProxyKeys.size + 1}`,
+    name: name || `密钥 ${cachedKeys.size + 1}`,
     useCount: 0,
     createdAt: Date.now(),
   };
 
   await state.kv.set([...PROXY_KEY_PREFIX, id], newKey);
-  state.cachedProxyKeys.set(id, newKey);
+  cachedKeys.set(id, newKey);
 
   return { success: true, id, key };
 }
@@ -62,7 +74,7 @@ export async function kvDeleteProxyKey(
   }
 
   await state.kv.delete(key);
-  state.cachedProxyKeys.delete(id);
+  state.cachedProxyKeys?.delete(id);
   state.dirtyProxyKeyIds.delete(id);
   return { success: true };
 }

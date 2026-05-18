@@ -540,7 +540,7 @@ Deno.test("integration: dirty stats flush does not resurrect deleted proxy keys"
     }),
   );
   const { id } = await addRes.json();
-  const cached = state.cachedProxyKeys.get(id);
+  const cached = state.cachedProxyKeys!.get(id);
   if (cached === undefined) {
     throw new Error("added proxy key missing from cache");
   }
@@ -552,7 +552,7 @@ Deno.test("integration: dirty stats flush does not resurrect deleted proxy keys"
     makeReq("DELETE", `/api/proxy-keys/${id}`, { headers: h }),
   );
   assertEquals(delRes.status, 200);
-  state.cachedProxyKeys.set(id, cached);
+  state.cachedProxyKeys!.set(id, cached);
   state.dirtyProxyKeyIds.add(id);
 
   await flushDirtyToKv();

@@ -6,6 +6,7 @@ import {
 import { hashPassword, verifyPbkdf2Password } from "./crypto.ts";
 import { state } from "./state.ts";
 import { kvGetAllProxyKeys } from "./kv/proxy-keys.ts";
+import type { ProxyAuthKey } from "./types.ts";
 
 // Admin password management
 /**
@@ -89,8 +90,11 @@ export async function isAdminAuthorized(req: Request): Promise<boolean> {
 /**
  * Finds the cached proxy-key id for an opaque bearer token.
  */
-function findProxyKeyByToken(token: string): string | null {
-  for (const [id, pk] of state.cachedProxyKeys) {
+function findProxyKeyByToken(
+  keys: Map<string, ProxyAuthKey>,
+  token: string,
+): string | null {
+  for (const [id, pk] of keys) {
     if (pk.key === token) return id;
   }
   return null;
@@ -106,12 +110,13 @@ export async function isProxyAuthorized(
   if (state.cachedConfig?.proxyPublicAccess === true) {
     return { authorized: true };
   }
-  if (!state.proxyKeysLoaded) {
-    const keys = await kvGetAllProxyKeys();
-    state.cachedProxyKeys = new Map(keys.map((k) => [k.id, k]));
-    state.proxyKeysLoaded = true;
+  let keys = state.cachedProxyKeys;
+  if (keys === null) {
+    const loadedKeys = await kvGetAllProxyKeys();
+    keys = new Map(loadedKeys.map((k) => [k.id, k]));
+    state.cachedProxyKeys = keys;
   }
-  if (state.cachedProxyKeys.size === 0) {
+  if (keys.size === 0) {
     return { authorized: false };
   }
 
@@ -122,14 +127,14 @@ export async function isProxyAuthorized(
 
   const token = authHeader.substring(7).trim();
 
-  const match = findProxyKeyByToken(token);
+  const match = findProxyKeyByToken(keys, token);
   if (match) return { authorized: true, keyId: match };
 
-  const keys = await kvGetAllProxyKeys();
-  state.cachedProxyKeys = new Map(keys.map((k) => [k.id, k]));
-  state.proxyKeysLoaded = true;
+  const loadedKeys = await kvGetAllProxyKeys();
+  keys = new Map(loadedKeys.map((k) => [k.id, k]));
+  state.cachedProxyKeys = keys;
 
-  const retryMatch = findProxyKeyByToken(token);
+  const retryMatch = findProxyKeyByToken(keys, token);
   if (retryMatch) return { authorized: true, keyId: retryMatch };
 
   return { authorized: false };
@@ -139,7 +144,7 @@ export async function isProxyAuthorized(
  * Records deferred usage stats for a proxy key after authorization succeeds.
  */
 export function recordProxyKeyUsage(keyId: string): void {
-  const pk = state.cachedProxyKeys.get(keyId);
+  const pk = state.cachedProxyKeys?.get(keyId);
   if (!pk) return;
   pk.useCount++;
   pk.lastUsed = Date.now();
