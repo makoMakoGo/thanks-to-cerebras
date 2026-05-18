@@ -106,10 +106,13 @@ export async function isProxyAuthorized(
   if (state.cachedConfig?.proxyPublicAccess === true) {
     return { authorized: true };
   }
-  if (state.cachedProxyKeys.size === 0) {
+  if (!state.proxyKeysLoaded) {
     const keys = await kvGetAllProxyKeys();
     state.cachedProxyKeys = new Map(keys.map((k) => [k.id, k]));
-    if (keys.length === 0) return { authorized: false };
+    state.proxyKeysLoaded = true;
+  }
+  if (state.cachedProxyKeys.size === 0) {
+    return { authorized: false };
   }
 
   const authHeader = req.headers.get("Authorization");
@@ -124,6 +127,7 @@ export async function isProxyAuthorized(
 
   const keys = await kvGetAllProxyKeys();
   state.cachedProxyKeys = new Map(keys.map((k) => [k.id, k]));
+  state.proxyKeysLoaded = true;
 
   const retryMatch = findProxyKeyByToken(token);
   if (retryMatch) return { authorized: true, keyId: retryMatch };

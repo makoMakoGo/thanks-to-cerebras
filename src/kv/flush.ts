@@ -182,4 +182,5 @@ export async function bootstrapCache(): Promise<void> {
 
   const proxyKeys = await kvGetAllProxyKeys();
   state.cachedProxyKeys = new Map(proxyKeys.map((k) => [k.id, k]));
+  state.proxyKeysLoaded = true;
 }

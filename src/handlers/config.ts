@@ -30,8 +30,8 @@ async function getStats(): Promise<Response> {
 async function updateConfig(req: Request): Promise<Response> {
   try {
     const body = await req.json().catch(() => ({}));
-    const kvFlushIntervalMs = body.kvFlushIntervalMs;
-    const proxyPublicAccess = body.proxyPublicAccess;
+    const kvFlushIntervalMs = body?.kvFlushIntervalMs;
+    const proxyPublicAccess = body?.proxyPublicAccess;
 
     if (
       kvFlushIntervalMs !== undefined &&

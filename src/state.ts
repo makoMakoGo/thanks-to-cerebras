@@ -37,6 +37,7 @@ export class AppState {
   modelCatalogFetchInFlight: Promise<ModelCatalog> | null = null;
 
   cachedProxyKeys = new Map<string, ProxyAuthKey>();
+  proxyKeysLoaded = false;
   dirtyProxyKeyIds = new Set<string>();
 
   addPendingTotalRequests(delta: number): void {
