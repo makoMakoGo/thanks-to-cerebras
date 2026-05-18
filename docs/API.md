@@ -43,7 +43,11 @@
 - 描述：将 OpenAI 风格的 Chat Completions 请求代理到 Cerebras。
 - 行为：
   - 会把请求体的 `model` 字段覆盖为模型池轮询得到的真实模型
-  - 流式响应会直接透传上游 response body
+  - 请求体读取前会检查 `Content-Length`，并限制实际 body 字节数
+  - 会校验关键 Chat Completions 字段，限制 messages 数量、content 长度和
+    `max_tokens`
+  - 成功流式响应会直接透传上游 response body
+  - 上游非 2xx 响应不会透传原始 body 或诊断 header，只返回统一错误结构
   - 若上游返回 `404` 且错误为
     `model_not_found`，代理会把该模型从模型池中移除（持久化到
     KV），并立刻切换到下一个模型重试（最多 `3` 次）
@@ -52,6 +56,8 @@
 
 - `401`：代理访问未授权（没带/带错 Bearer
   token，或未创建代理密钥且未开启公开访问）
+- `400`：请求 JSON 或 Chat Completions 关键字段非法
+- `413`：请求体超过大小限制
 - `429`：当前没有可用 API key（全部处于冷却/不可用等）
 
 ## 3. 管理鉴权 API（无需先登录）
