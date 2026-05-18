@@ -26,7 +26,7 @@ Deno.test("recordProxyKeyUsage - increments useCount", () => {
 
   recordProxyKeyUsage("pk-1");
 
-  const updatedKey = state.cachedProxyKeys.get("pk-1");
+  const updatedKey = state.cachedProxyKeys!.get("pk-1");
   assertEquals(updatedKey?.useCount, 6);
 });
 
@@ -43,7 +43,7 @@ Deno.test("recordProxyKeyUsage - sets lastUsed timestamp", () => {
   recordProxyKeyUsage("pk-1");
   const after = Date.now();
 
-  const updatedKey = state.cachedProxyKeys.get("pk-1");
+  const updatedKey = state.cachedProxyKeys!.get("pk-1");
   assertEquals(updatedKey?.lastUsed !== undefined, true);
   assertEquals(updatedKey!.lastUsed! >= before, true);
   assertEquals(updatedKey!.lastUsed! <= after, true);
@@ -81,6 +81,6 @@ Deno.test("recordProxyKeyUsage - handles multiple calls", () => {
   recordProxyKeyUsage("pk-1");
   recordProxyKeyUsage("pk-1");
 
-  const updatedKey = state.cachedProxyKeys.get("pk-1");
+  const updatedKey = state.cachedProxyKeys!.get("pk-1");
   assertEquals(updatedKey?.useCount, 3);
 });

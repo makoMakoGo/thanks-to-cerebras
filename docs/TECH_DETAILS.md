@@ -1,6 +1,7 @@
 # 技术细节
 
-> 📖 相关文档：[README](../README.md) | [部署指南](GUIDE.md) | [API 文档](API.md)
+> 📖 相关文档：[README](../README.md) | [部署指南](GUIDE.md) |
+> [API 文档](API.md)
 
 ## 架构概述
 
@@ -17,14 +18,13 @@ Client -> /v1/chat/completions -> Deno Proxy -> Cerebras API
 
 ## 鉴权逻辑
 
-代理访问密钥存储在 KV，逻辑如下：
+代理访问密钥存储在 KV，默认拒绝未授权访问。只有显式开启公开访问时，才允许无
+Bearer token 调用代理。
 
 ```typescript
 function isProxyAuthorized(req: Request) {
-  // 无代理密钥 -> 公开访问
-  if (cachedProxyKeys.size === 0) return { authorized: true };
+  if (cachedConfig.proxyPublicAccess) return { authorized: true };
 
-  // 有代理密钥 -> 验证 Bearer token
   const token = req.headers.get("Authorization")?.substring(7);
   for (const pk of cachedProxyKeys.values()) {
     if (pk.key === token) return { authorized: true, keyId: pk.id };
@@ -38,7 +38,8 @@ function isProxyAuthorized(req: Request) {
 - 对外暴露虚拟模型名 `cerebras-translator`（见 `GET /v1/models`）
 - 内部按 Round-Robin 选择真实模型
 - 轮询游标持久化到 KV
-- 若遇到上游 `404 model_not_found`，会把该模型从模型池中移除（持久化到 KV），并切换到下一个模型重试（最多 3 次）
+- 若遇到上游 `404 model_not_found`，会把该模型从模型池中移除（持久化到
+  KV），并切换到下一个模型重试（最多 3 次）
 
 ## KV 数据结构
 
@@ -48,7 +49,8 @@ function isProxyAuthorized(req: Request) {
   modelPool: string[],
   currentModelIndex: number,
   totalRequests: number,
-  kvFlushIntervalMs: number
+  kvFlushIntervalMs: number,
+  proxyPublicAccess: boolean
 }
 
 // 管理员密码
@@ -65,7 +67,9 @@ function isProxyAuthorized(req: Request) {
 }
 ```
 
-升级到当前版本后，如果 KV 中仍是旧配置结构（如包含 `schemaVersion` / `disabledModels` 或缺少必填字段），服务会在启动时直接报错；需要先清空 KV（本地/Docker 删除 `kv.sqlite3`，Deno Deploy 清空项目 KV 数据）再重启。
+升级到当前版本后，如果 KV 中仍是旧配置结构（如包含 `schemaVersion` /
+`disabledModels` 或缺少必填字段），服务会在启动时直接报错；需要先清空
+KV（本地/Docker 删除 `kv.sqlite3`，Deno Deploy 清空项目 KV 数据）再重启。
 
 ## 性能优化
 
@@ -83,5 +87,5 @@ function isProxyAuthorized(req: Request) {
 
 ## 本地运行
 
-本地运行时 KV 默认存储在 `src/.deno-kv-local/kv.sqlite3`，可通过
-`KV_PATH` 指定目录（通过检测 `DENO_DEPLOYMENT_ID` 判断是否为 Deno Deploy）。
+本地运行时 KV 默认存储在 `src/.deno-kv-local/kv.sqlite3`，可通过 `KV_PATH`
+指定目录（通过检测 `DENO_DEPLOYMENT_ID` 判断是否为 Deno Deploy）。

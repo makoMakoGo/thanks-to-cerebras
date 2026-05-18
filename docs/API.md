@@ -1,11 +1,14 @@
 # API 文档
 
-> 📖 相关文档：[README](../README.md) | [部署指南](GUIDE.md) | [技术细节](TECH_DETAILS.md)
+> 📖 相关文档：[README](../README.md) | [部署指南](GUIDE.md) |
+> [技术细节](TECH_DETAILS.md)
 
 ## 0. 约定
 
 - Base URL：`https://<your-project>.deno.dev`
-- 对外代理接口（`/v1/*`）支持开放 CORS（`Access-Control-Allow-Origin: *`）；管理接口（`/api/*`）的 JSON 响应与 OPTIONS 预检不返回 `Access-Control-Allow-Origin`，浏览器跨域请求会被拦截。
+- 对外代理接口（`/v1/*`）支持开放
+  CORS（`Access-Control-Allow-Origin: *`）；管理接口（`/api/*`）的 JSON 响应与
+  OPTIONS 预检不返回 `Access-Control-Allow-Origin`，浏览器跨域请求会被拦截。
 - `OPTIONS` 预检请求统一返回 `204`。
 - JSON 响应默认带 `Cache-Control: no-store`（用于避免缓存敏感数据/统计）。
 
@@ -24,9 +27,9 @@
 
 ### 1.2 代理 API（OpenAI 兼容入口）
 
-- 当 **未创建任何代理密钥**（`/api/proxy-keys` 为空）时：**公开访问**。
-- 当 **已创建代理密钥** 时：必须携带
+- 默认必须携带代理密钥：
   - Header：`Authorization: Bearer <proxy_key>`
+- 当管理面板显式开启公开访问时，可不携带代理密钥。
 
 ## 2. OpenAI 兼容代理接口（对外）
 
@@ -41,11 +44,14 @@
 - 行为：
   - 会把请求体的 `model` 字段覆盖为模型池轮询得到的真实模型
   - 流式响应会直接透传上游 response body
-  - 若上游返回 `404` 且错误为 `model_not_found`，代理会把该模型从模型池中移除（持久化到 KV），并立刻切换到下一个模型重试（最多 `3` 次）
+  - 若上游返回 `404` 且错误为
+    `model_not_found`，代理会把该模型从模型池中移除（持久化到
+    KV），并立刻切换到下一个模型重试（最多 `3` 次）
 
 常见响应码：
 
-- `401`：代理访问未授权（启用了代理密钥但没带/带错 Bearer token）
+- `401`：代理访问未授权（没带/带错 Bearer
+  token，或未创建代理密钥且未开启公开访问）
 - `429`：当前没有可用 API key（全部处于冷却/不可用等）
 
 ## 3. 管理鉴权 API（无需先登录）
@@ -83,7 +89,8 @@
 ### 4.1 代理访问密钥（Proxy Keys）
 
 - `GET /api/proxy-keys`
-  - 返回：密钥列表（key 会做 mask）、`maxKeys`、`authEnabled`
+  - 返回：密钥列表（key 会做
+    mask）、`maxKeys`、`authEnabled`、`proxyPublicAccess`
 - `POST /api/proxy-keys`
   - 请求体：`{ "name": string }`（可选）
   - 成功：返回新创建的密钥（返回体中会包含一次性明文 key）

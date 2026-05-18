@@ -1,22 +1,24 @@
 # 部署指南（仅支持 Git 部署）
 
-> 📖 相关文档：[README](../README.md) | [API 文档](API.md) | [技术细节](TECH_DETAILS.md)
+> 📖 相关文档：[README](../README.md) | [API 文档](API.md) |
+> [技术细节](TECH_DETAILS.md)
 
 ## 部署方式选择
 
-| 方式 | 适用场景 | 文档 |
-|------|----------|------|
-| Deno Deploy | 推荐，零运维 | 本文档 |
-| VPS + systemd | 自有服务器 | [VPS 部署](DEPLOYMENT_VPS.md) |
-| Docker | 容器化环境 | [Docker 部署](DEPLOYMENT_DOCKER.md) |
+| 方式          | 适用场景     | 文档                                |
+| ------------- | ------------ | ----------------------------------- |
+| Deno Deploy   | 推荐，零运维 | 本文档                              |
+| VPS + systemd | 自有服务器   | [VPS 部署](DEPLOYMENT_VPS.md)       |
+| Docker        | 容器化环境   | [Docker 部署](DEPLOYMENT_DOCKER.md) |
 
 ## 核心要点（先看这个）
 
-- 唯一支持的部署方式：**从 Git 仓库部署到新 Deno Deploy**（`https://console.deno.com/`）
+- 唯一支持的部署方式：**从 Git 仓库部署到新 Deno
+  Deploy**（`https://console.deno.com/`）
 - 服务入口：`main.ts`
 - 配置持久化：Deno KV（**需要在控制台手动创建并关联数据库**）
 - 管理面板：首次访问必须提供部署环境中的 `SETUP_TOKEN` 后设置管理密码
-- 代理鉴权：通过管理面板创建代理密钥动态控制
+- 代理鉴权：默认拒绝未授权访问；通过管理面板创建代理密钥，或显式开启公开访问
 
 ## 不支持的部署方式（别再踩坑）
 
@@ -51,13 +53,15 @@ GitHub Fork  ->  Deno Deploy（console）  ->  https://<project>.deno.dev/
 > 如果跳过这一步，所有数据（管理密码、API 密钥等）都会在刷新后丢失。
 
 1. 在 Deno Deploy 控制台左侧导航栏点击 **Databases**
-2. 点击 **Provision Database** → 选择 **Deno KV** → 输入名称（如 `cerebras-kv`）→ 创建
+2. 点击 **Provision Database** → 选择 **Deno KV** → 输入名称（如
+   `cerebras-kv`）→ 创建
 3. 在数据库列表找到刚创建的数据库，点击 **Assign** → 选择你的应用
 4. 等待状态变为 **Connected**
 
 ### 3. 设置首次初始化令牌（必须）
 
-在 Deno Deploy 项目的 **Settings → Environment Variables** 中新增 `SETUP_TOKEN`，值使用高熵随机字符串。该令牌只用于首次创建管理密码，不要写入仓库。
+在 Deno Deploy 项目的 **Settings → Environment Variables** 中新增
+`SETUP_TOKEN`，值使用高熵随机字符串。该令牌只用于首次创建管理密码，不要写入仓库。
 
 ### 4. 验证部署
 
@@ -83,7 +87,8 @@ Cerebras Proxy 启动
 
 ### 6. （可选）调整 KV 刷盘间隔
 
-默认每 15 秒刷盘一次（最小 1000ms）。部署后登录管理面板，在「访问控制」→「高级设置」里调整。
+默认每 15 秒刷盘一次（最小
+1000ms）。部署后登录管理面板，在「访问控制」→「高级设置」里调整。
 
 ## 运维说明
 
@@ -95,8 +100,9 @@ Cerebras Proxy 启动
 
 ### 访问控制
 
-- 无代理密钥时：公开访问
+- 默认无代理密钥时：拒绝未授权访问
 - 有代理密钥时：需 Bearer token 鉴权
+- 显式开启公开访问时：可不带 Bearer token，但会暴露上游额度风险
 - 最多 5 个代理密钥
 
 ### 模型下架处理（model_not_found）
@@ -105,7 +111,8 @@ Cerebras Proxy 启动
 
 本服务会在代理热路径做清理与重试：
 
-- 发现 `model_not_found` 会把该模型从模型池中移除（持久化到 KV），并立刻切换到下一个模型继续重试（最多 3 次）
+- 发现 `model_not_found` 会把该模型从模型池中移除（持久化到
+  KV），并立刻切换到下一个模型继续重试（最多 3 次）
 - 你可以在管理面板「模型配置」里重新勾选/保存模型池；也可以点击“刷新”更新模型目录
 
 ### 统计刷盘
@@ -113,13 +120,14 @@ Cerebras Proxy 启动
 默认每 15 秒将统计数据异步写回 KV，最终一致。
 
 - 推荐在管理面板「访问控制」→「高级设置」里调整刷盘间隔
-- 刷盘间隔会被钳制到 **最小 1000ms**（例如设置成 `0` 或 `500` 最终都会按 `1000ms` 执行）
+- 刷盘间隔会被钳制到 **最小 1000ms**（例如设置成 `0` 或 `500` 最终都会按
+  `1000ms` 执行）
 
 ## 客户端配置
 
 ```
 API Base: https://<project>.deno.dev/v1
-API Key: <代理密钥> 或任意（未启用鉴权时）
+API Key: <代理密钥>（只有显式公开模式可填任意值）
 Model: 任意
 ```
 
@@ -127,7 +135,8 @@ Model: 任意
 
 **刷新后数据全丢了（管理密码、API 密钥等）**
 
-新版 Deno Deploy 需要手动创建并关联 KV 数据库。如果没有关联，`Deno.openKv()` 返回的是临时内存 KV，请求结束数据就丢失了。
+新版 Deno Deploy 需要手动创建并关联 KV 数据库。如果没有关联，`Deno.openKv()`
+返回的是临时内存 KV，请求结束数据就丢失了。
 
 解决方案：按照上面「创建并关联 KV 数据库」步骤操作。
 
@@ -135,9 +144,11 @@ Model: 任意
 
 **`TypeError: Deno.openKv is not a function`**
 
-- 本项目依赖 Deno KV；请确认你是通过 Git 部署（仓库内含 `deno.json`）且入口文件为 `main.ts`
+- 本项目依赖 Deno KV；请确认你是通过 Git 部署（仓库内含
+  `deno.json`）且入口文件为 `main.ts`
 - 如果你硬要用 Playgrounds 复制粘贴，那就别来提 issue（本项目不支持）
 
-**401 Unauthorized** 检查是否创建了代理密钥，客户端是否携带正确的 Bearer token。
+**401 Unauthorized**
+检查是否创建并使用了代理密钥，或是否在管理面板显式开启公开访问。
 
 **统计数据跳变** 多实例部署时各实例不共享内存缓存，统计受刷盘间隔影响。

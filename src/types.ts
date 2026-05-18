@@ -21,6 +21,7 @@ export interface ProxyConfig {
   currentModelIndex: number;
   totalRequests: number;
   kvFlushIntervalMs: number;
+  proxyPublicAccess: boolean;
 }
 
 export interface ModelCatalog {

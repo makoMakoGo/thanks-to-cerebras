@@ -62,11 +62,16 @@ export function validateProxyConfig(rawValue: unknown): ProxyConfig {
     throwIncompatibleConfig("缺少 kvFlushIntervalMs 或类型错误");
   }
 
+  if (typeof raw.proxyPublicAccess !== "boolean") {
+    throwIncompatibleConfig("缺少 proxyPublicAccess 或类型错误");
+  }
+
   return {
     modelPool: normalizeModelPool(raw.modelPool),
     currentModelIndex: raw.currentModelIndex,
     totalRequests: raw.totalRequests,
     kvFlushIntervalMs: raw.kvFlushIntervalMs,
+    proxyPublicAccess: raw.proxyPublicAccess,
   };
 }
 
@@ -81,6 +86,7 @@ export async function kvEnsureConfigEntry(): Promise<
       currentModelIndex: 0,
       totalRequests: 0,
       kvFlushIntervalMs: DEFAULT_KV_FLUSH_INTERVAL_MS,
+      proxyPublicAccess: false,
     };
     await state.kv.set(CONFIG_KEY, defaultConfig);
     entry = await state.kv.get<ProxyConfig>(CONFIG_KEY);

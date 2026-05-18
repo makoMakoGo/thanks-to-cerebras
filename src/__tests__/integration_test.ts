@@ -66,6 +66,20 @@ async function setupAuth(handler: Handler): Promise<string> {
   return token;
 }
 
+async function enableProxyPublicAccess(handler: Handler): Promise<string> {
+  const token = await setupAuth(handler);
+  const res = await handler(
+    makeReq("PATCH", "/api/config", {
+      headers: { "X-Admin-Token": token },
+      body: { proxyPublicAccess: true },
+    }),
+  );
+  assertEquals(res.status, 200);
+  const body = await res.json();
+  assertEquals(body.proxyPublicAccess, true);
+  return token;
+}
+
 // ─── Auth Flow ───
 
 Deno.test("integration: auth setup → login → logout", async () => {
@@ -485,17 +499,19 @@ Deno.test("integration: config get → update", async () => {
   const getBody = await getRes.json();
   assertEquals(getBody.kvFlushIntervalMs, DEFAULT_KV_FLUSH_INTERVAL_MS);
   assertEquals(getBody.totalRequests, 0);
+  assertEquals(getBody.proxyPublicAccess, false);
 
   const updateRes = await handler(
     makeReq("PATCH", "/api/config", {
       headers: h,
-      body: { kvFlushIntervalMs: 5000 },
+      body: { kvFlushIntervalMs: 5000, proxyPublicAccess: true },
     }),
   );
   assertEquals(updateRes.status, 200);
   const updateBody = await updateRes.json();
   assertEquals(updateBody.success, true);
   assertEquals(updateBody.kvFlushIntervalMs, 5000);
+  assertEquals(updateBody.proxyPublicAccess, true);
 
   const persistedRes = await handler(
     makeReq("GET", "/api/config", { headers: h }),
@@ -503,6 +519,7 @@ Deno.test("integration: config get → update", async () => {
   assertEquals(persistedRes.status, 200);
   const persistedBody = await persistedRes.json();
   assertEquals(persistedBody.kvFlushIntervalMs, 5000);
+  assertEquals(persistedBody.proxyPublicAccess, true);
 
   if (state.kvFlushTimerId !== null) {
     clearInterval(state.kvFlushTimerId);
@@ -559,7 +576,7 @@ Deno.test("integration: dirty stats flush does not resurrect deleted proxy keys"
     }),
   );
   const { id } = await addRes.json();
-  const cached = state.cachedProxyKeys.get(id);
+  const cached = state.cachedProxyKeys!.get(id);
   if (cached === undefined) {
     throw new Error("added proxy key missing from cache");
   }
@@ -571,7 +588,7 @@ Deno.test("integration: dirty stats flush does not resurrect deleted proxy keys"
     makeReq("DELETE", `/api/proxy-keys/${id}`, { headers: h }),
   );
   assertEquals(delRes.status, 200);
-  state.cachedProxyKeys.set(id, cached);
+  state.cachedProxyKeys!.set(id, cached);
   state.dirtyProxyKeyIds.add(id);
 
   await flushDirtyToKv();
@@ -635,19 +652,52 @@ Deno.test("integration: batch import API keys", async () => {
   kv.close();
 });
 
-// ─── Proxy: 401 unauthorized (proxy key required) ───
+// ─── Proxy authorization ───
+
+Deno.test("integration: proxy 401 when no proxy key exists by default", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+
+  const res = await handler(
+    makeReq("POST", "/v1/chat/completions", {
+      body: { messages: [{ role: "user", content: "hi" }] },
+    }),
+  );
+  assertEquals(res.status, 401);
+
+  kv.close();
+});
+
+Deno.test("integration: proxy explicit public mode allows requests without keys", async () => {
+  const kv = await setupKv();
+  const handler = buildHandler();
+  await enableProxyPublicAccess(handler);
+
+  const res = await handler(
+    makeReq("POST", "/v1/chat/completions", {
+      body: { messages: [{ role: "user", content: "hi" }] },
+    }),
+  );
+  assertEquals(res.status, 500);
+  const body = await res.json();
+  assertEquals(body.error, "没有可用的 API 密钥");
+
+  kv.close();
+});
 
 Deno.test("integration: proxy 401 when proxy key exists but token missing", async () => {
   const kv = await setupKv();
   const handler = buildHandler();
   const token = await setupAuth(handler);
 
-  await handler(
+  const addProxyKeyRes = await handler(
     makeReq("POST", "/api/proxy-keys", {
       headers: { "X-Admin-Token": token },
       body: { name: "gate" },
     }),
   );
+  const addProxyKeyBody = await addProxyKeyRes.json();
+  const rawProxyKey = addProxyKeyBody.key;
 
   const res = await handler(
     makeReq("POST", "/v1/chat/completions", {
@@ -664,6 +714,14 @@ Deno.test("integration: proxy 401 when proxy key exists but token missing", asyn
   );
   assertEquals(resInvalid.status, 401);
 
+  const resValid = await handler(
+    makeReq("POST", "/v1/chat/completions", {
+      headers: { Authorization: `Bearer ${rawProxyKey}` },
+      body: { messages: [{ role: "user", content: "hi" }] },
+    }),
+  );
+  assertEquals(resValid.status, 500);
+
   kv.close();
 });
 
@@ -672,6 +730,7 @@ Deno.test("integration: proxy 401 when proxy key exists but token missing", asyn
 Deno.test("integration: proxy 400 when messages missing or empty", async () => {
   const kv = await setupKv();
   const handler = buildHandler();
+  await enableProxyPublicAccess(handler);
 
   const res1 = await handler(
     makeReq("POST", "/v1/chat/completions", {
@@ -695,6 +754,7 @@ Deno.test("integration: proxy 400 when messages missing or empty", async () => {
 Deno.test("integration: proxy 500 when no API keys available", async () => {
   const kv = await setupKv();
   const handler = buildHandler();
+  await enableProxyPublicAccess(handler);
 
   const res = await handler(
     makeReq("POST", "/v1/chat/completions", {
@@ -713,7 +773,7 @@ Deno.test("integration: proxy 500 when no API keys available", async () => {
 Deno.test("integration: proxy 429 when all API keys on cooldown", async () => {
   const kv = await setupKv();
   const handler = buildHandler();
-  const token = await setupAuth(handler);
+  const token = await enableProxyPublicAccess(handler);
 
   const addRes = await handler(
     makeReq("POST", "/api/keys", {
@@ -740,7 +800,7 @@ Deno.test("integration: proxy 429 when all API keys on cooldown", async () => {
 Deno.test("integration: proxy 503 when model pool is empty", async () => {
   const kv = await setupKv();
   const handler = buildHandler();
-  const token = await setupAuth(handler);
+  const token = await enableProxyPublicAccess(handler);
 
   await handler(
     makeReq("POST", "/api/keys", {
@@ -1095,6 +1155,12 @@ Deno.test("integration: /api/metrics returns counters (requires auth)", async ()
   const kv = await setupKv();
   const handler = buildHandler();
   const token = await setupAuth(handler);
+  await handler(
+    makeReq("PATCH", "/api/config", {
+      headers: { "X-Admin-Token": token },
+      body: { proxyPublicAccess: true },
+    }),
+  );
 
   const proxyRes = await handler(
     makeReq("POST", "/v1/chat/completions", {

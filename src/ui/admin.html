@@ -292,7 +292,7 @@
           </div>
           <span style="font-size: 11px; color: #64748b;" id="keyCountLabel">{{PROXY_KEY_COUNT}}/{{MAX_PROXY_KEYS}}</span>
         </div>
-        <p class="hint" style="margin-top: 0; margin-bottom: 14px;">创建密钥后自动开启鉴权；删除所有密钥则变为公开访问</p>
+        <p class="hint" style="margin-top: 0; margin-bottom: 14px;">默认关闭公开访问；如需无代理密钥访问，必须在高级设置中显式开启</p>
 
         <div class="form-group">
           <label>密钥名称（可选）</label>
@@ -311,6 +311,11 @@
           <input type="number" id="kvFlushIntervalMs" class="form-control" min="1000" step="100" placeholder="例如 15000">
           <button class="btn btn-outline" onclick="saveKvFlushIntervalMs()" style="margin-top: 8px;">保存</button>
           <p class="hint" id="kvFlushIntervalHint">最小 1000ms。用于控制统计/用量写回 KV 的频率。</p>
+          <label style="display: flex; align-items: center; gap: 8px; margin-top: 12px;">
+            <input type="checkbox" id="proxyPublicAccess">
+            允许无代理密钥公开访问
+          </label>
+          <p class="hint">开启后任何人都能调用代理并消耗上游额度，仅建议在受信网络中使用。</p>
         </div>
       </div>
     </div>
@@ -579,6 +584,8 @@
           const effective = data.effectiveKvFlushIntervalMs ?? data.kvFlushIntervalMs;
           hint.textContent = '当前生效：' + String(effective ?? '') + 'ms';
         }
+        const publicAccess = document.getElementById('proxyPublicAccess');
+        if (publicAccess) publicAccess.checked = data.proxyPublicAccess === true;
       } catch (e) {
         showNotification('加载配置失败: ' + formatClientError(e), 'error');
       }
@@ -586,6 +593,7 @@
 
     async function saveKvFlushIntervalMs() {
       const el = document.getElementById('kvFlushIntervalMs');
+      const publicAccess = document.getElementById('proxyPublicAccess');
       const raw = el ? el.value : '';
       const ms = Number(raw);
       const min = Number(el?.min || '1000');
@@ -599,11 +607,14 @@
         return;
       }
 
+      const proxyPublicAccess = publicAccess ? publicAccess.checked === true : false;
+      if (proxyPublicAccess && !confirm('公开访问会允许任何人消耗上游额度，确认开启？')) return;
+
       try {
         const res = await fetch('/api/config', {
           method: 'PATCH',
           headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-          body: JSON.stringify({ kvFlushIntervalMs: ms }),
+          body: JSON.stringify({ kvFlushIntervalMs: ms, proxyPublicAccess }),
         });
         const data = await res.json().catch(() => ({}));
         if (handleUnauthorized(res)) return;
@@ -613,6 +624,7 @@
         }
         showNotification('已保存');
         loadConfig();
+        loadProxyKeys();
       } catch (e) {
         showNotification('保存失败: ' + formatClientError(e), 'error');
       }
@@ -637,12 +649,12 @@
         countLabel.textContent = (data.keys?.length || 0) + '/' + MAX_PROXY_KEYS;
         createBtn.disabled = (data.keys?.length || 0) >= MAX_PROXY_KEYS;
 
-        if (data.authEnabled) {
-          badge.className = 'auth-badge auth-on';
-          badge.textContent = '鉴权已开启';
-        } else {
+        if (data.proxyPublicAccess) {
           badge.className = 'auth-badge auth-off';
           badge.textContent = '公开访问';
+        } else {
+          badge.className = 'auth-badge auth-on';
+          badge.textContent = '鉴权已开启';
         }
 
         if (data.keys?.length > 0) {
@@ -752,7 +764,7 @@
           container.textContent = '';
           const empty = document.createElement('div');
           empty.className = 'empty-state';
-          empty.textContent = '暂无代理密钥，API 当前为公开访问';
+          empty.textContent = data.proxyPublicAccess ? '暂无代理密钥，API 当前为公开访问' : '暂无代理密钥，API 当前拒绝未授权访问';
           container.appendChild(empty);
         }
       } catch (e) { showNotification('加载失败: ' + formatClientError(e), 'error'); }

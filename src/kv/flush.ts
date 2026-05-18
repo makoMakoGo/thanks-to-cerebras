@@ -74,7 +74,7 @@ async function flushApiKeyStats(id: string): Promise<void> {
  * A concurrent delete wins permanently; a concurrent update is retried later.
  */
 async function flushProxyKeyStats(id: string): Promise<void> {
-  const proxyKey = state.cachedProxyKeys.get(id);
+  const proxyKey = state.cachedProxyKeys?.get(id);
   if (!proxyKey) return;
 
   const key = [...PROXY_KEY_PREFIX, id];
