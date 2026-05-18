@@ -1,4 +1,5 @@
 import { API_KEY_PREFIX } from "./constants.ts";
+import { toPersistedApiKey } from "./api-key-record.ts";
 import { state } from "./state.ts";
 
 export function rebuildActiveKeyIds(): void {
@@ -67,7 +68,7 @@ export async function markKeyInvalid(id: string): Promise<void> {
   state.dirtyKeyIds.delete(id);
   rebuildActiveKeyIds();
   try {
-    await state.kv.set([...API_KEY_PREFIX, id], keyEntry);
+    await state.kv.set([...API_KEY_PREFIX, id], toPersistedApiKey(keyEntry));
   } catch (error) {
     state.dirtyKeyIds.add(id);
     console.error("[KV] markKeyInvalid immediate write failed:", error);

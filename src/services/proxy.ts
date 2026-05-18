@@ -5,6 +5,7 @@ import {
   MAX_UPSTREAM_ERROR_BODY_BYTES,
   NO_CACHE_HEADERS,
   PROXY_REQUEST_TIMEOUT_MS,
+  UPSTREAM_ERROR_BODY_TIMEOUT_MS,
 } from "../constants.ts";
 import { fetchWithTimeout, isAbortError, safeJsonParse } from "../utils.ts";
 import { state } from "../state.ts";
@@ -62,25 +63,57 @@ function buildSanitizedUpstreamError(response: Response): ProxyResult {
   };
 }
 
+async function readBoundedBodyText(
+  body: ReadableStream<Uint8Array> | null,
+): Promise<{ ok: true; text: string } | { ok: false }> {
+  const reader = body?.getReader();
+  if (!reader) return { ok: true, text: "" };
+
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  let timerId: number | undefined;
+  const timeout = new Promise<"timeout">((resolve) => {
+    timerId = setTimeout(
+      () => resolve("timeout"),
+      UPSTREAM_ERROR_BODY_TIMEOUT_MS,
+    );
+  });
+
+  try {
+    while (true) {
+      const read = reader.read();
+      const result = await Promise.race([read, timeout]);
+      if (result === "timeout") {
+        read.catch(() => {});
+        await reader.cancel("upstream error body timeout");
+        return { ok: false };
+      }
+      if (result.done) break;
+      total += result.value.byteLength;
+      if (total > MAX_UPSTREAM_ERROR_BODY_BYTES) {
+        await reader.cancel("upstream error body too large");
+        return { ok: false };
+      }
+      chunks.push(result.value);
+    }
+  } finally {
+    if (timerId !== undefined) clearTimeout(timerId);
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { ok: true, text: new TextDecoder().decode(bytes) };
+}
+
 async function discardBoundedUpstreamErrorBody(
   response: Response,
 ): Promise<void> {
-  const reader = response.body?.getReader();
-  if (!reader) return;
-  let total = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) return;
-      total += value.byteLength;
-      if (total > MAX_UPSTREAM_ERROR_BODY_BYTES) {
-        await reader.cancel();
-        return;
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
+  await readBoundedBodyText(response.body);
 }
 
 export async function forwardChatCompletion(
@@ -112,12 +145,7 @@ export async function forwardChatCompletion(
     };
   }
 
-  let lastModelNotFound: {
-    status: number;
-    statusText: string;
-    headers: Headers;
-    bodyText: string;
-  } | null = null;
+  let sawModelNotFound = false;
 
   for (let attempt = 0; attempt < MAX_MODEL_NOT_FOUND_RETRIES; attempt++) {
     const targetModel = getNextModelFast();
@@ -154,20 +182,19 @@ export async function forwardChatCompletion(
     }
 
     if (apiResponse.status === 404) {
-      const clone = apiResponse.clone();
-      const bodyText = await clone.text().catch(() => "");
-      const payload = safeJsonParse(bodyText);
+      const bodyRead = await readBoundedBodyText(apiResponse.body);
+      if (!bodyRead.ok) {
+        metrics.inc("upstream_responses_total", "404_body_too_large");
+        metrics.inc("proxy_requests_total", "upstream_error");
+        return buildSanitizedUpstreamError(apiResponse);
+      }
+      const payload = safeJsonParse(bodyRead.text);
 
       const modelNotFound = isModelNotFoundPayload(payload) ||
-        isModelNotFoundText(bodyText);
+        isModelNotFoundText(bodyRead.text);
 
       if (modelNotFound) {
-        lastModelNotFound = {
-          status: apiResponse.status,
-          statusText: apiResponse.statusText,
-          headers: new Headers(apiResponse.headers),
-          bodyText,
-        };
+        sawModelNotFound = true;
         apiResponse.body?.cancel();
         metrics.inc("upstream_responses_total", "404_model_not_found");
         await removeModelFromPool(targetModel, "model_not_found");
@@ -207,21 +234,9 @@ export async function forwardChatCompletion(
     };
   }
 
-  if (lastModelNotFound) {
-    const responseHeaders = new Headers(lastModelNotFound.headers);
-    responseHeaders.delete("content-encoding");
-    responseHeaders.delete("content-length");
-    responseHeaders.delete("transfer-encoding");
-    applyStandardHeaders(responseHeaders);
-
+  if (sawModelNotFound) {
     metrics.inc("proxy_requests_total", "no_model");
-    return {
-      kind: "upstream",
-      body: new Blob([lastModelNotFound.bodyText]).stream(),
-      status: lastModelNotFound.status,
-      statusText: lastModelNotFound.statusText,
-      headers: responseHeaders,
-    };
+    return { kind: "error", message: "模型不可用", status: 502 };
   }
 
   metrics.inc("proxy_requests_total", "no_model");
