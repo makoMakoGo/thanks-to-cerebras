@@ -6,8 +6,11 @@ import {
 } from "./constants.ts";
 import { hashPassword, verifyPbkdf2Password } from "./crypto.ts";
 import { state } from "./state.ts";
+import { kvGetConfig } from "./kv/config.ts";
+import { getAuthCacheRevision } from "./kv/revisions.ts";
 import { findProxyKeyIdBySecret, kvGetAllProxyKeys } from "./kv/proxy-keys.ts";
 import type { ProxyAuthKey } from "./types.ts";
+import { hashProxyKey } from "./secrets.ts";
 
 // Admin password management
 /**
@@ -53,9 +56,13 @@ export async function verifyAdminPassword(password: string): Promise<boolean> {
 export async function createAdminToken(): Promise<string> {
   const token = crypto.randomUUID();
   const expiry = Date.now() + ADMIN_TOKEN_EXPIRY_MS;
-  await state.kv.set([...ADMIN_TOKEN_PREFIX, token], expiry, {
-    expireIn: ADMIN_TOKEN_EXPIRY_MS,
-  });
+  await state.kv.set(
+    [...ADMIN_TOKEN_PREFIX, await hashProxyKey(token)],
+    expiry,
+    {
+      expireIn: ADMIN_TOKEN_EXPIRY_MS,
+    },
+  );
   return token;
 }
 
@@ -64,10 +71,11 @@ export async function createAdminToken(): Promise<string> {
  */
 export async function verifyAdminToken(token: string | null): Promise<boolean> {
   if (!token) return false;
-  const entry = await state.kv.get<number>([...ADMIN_TOKEN_PREFIX, token]);
+  const tokenKey = [...ADMIN_TOKEN_PREFIX, await hashProxyKey(token)];
+  const entry = await state.kv.get<number>(tokenKey);
   if (!entry.value) return false;
   if (Date.now() > entry.value) {
-    await state.kv.delete([...ADMIN_TOKEN_PREFIX, token]);
+    await state.kv.delete(tokenKey);
     return false;
   }
   return true;
@@ -77,7 +85,7 @@ export async function verifyAdminToken(token: string | null): Promise<boolean> {
  * Deletes an admin session token; missing tokens are already logged out.
  */
 export async function deleteAdminToken(token: string): Promise<void> {
-  await state.kv.delete([...ADMIN_TOKEN_PREFIX, token]);
+  await state.kv.delete([...ADMIN_TOKEN_PREFIX, await hashProxyKey(token)]);
 }
 
 /**
@@ -116,6 +124,16 @@ async function refreshProxyKeyCache(): Promise<Map<string, ProxyAuthKey>> {
   }
 }
 
+async function refreshAuthCacheIfChanged(): Promise<void> {
+  if (!shouldRefreshProxyKeyCache()) return;
+  const revision = await getAuthCacheRevision();
+  state.authCacheRevisionLastCheckedAt = Date.now();
+  if (revision === state.authCacheRevision) return;
+  state.authCacheRevision = revision;
+  state.cachedConfig = await kvGetConfig();
+  await refreshProxyKeyCache();
+}
+
 function shouldRefreshProxyKeyCache(): boolean {
   return Date.now() - state.proxyKeyCacheLastLoadedAt >=
     PROXY_KEY_AUTH_REFRESH_INTERVAL_MS;
@@ -128,6 +146,7 @@ function shouldRefreshProxyKeyCache(): boolean {
 export async function isProxyAuthorized(
   req: Request,
 ): Promise<{ authorized: boolean; keyId?: string }> {
+  await refreshAuthCacheIfChanged();
   if (state.cachedConfig?.proxyPublicAccess === true) {
     return { authorized: true };
   }

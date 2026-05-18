@@ -17,6 +17,7 @@ import {
 } from "./config.ts";
 import { kvGetAllKeys } from "./api-keys.ts";
 import { kvGetAllProxyKeys } from "./proxy-keys.ts";
+import { getApiKeyCacheRevision, getAuthCacheRevision } from "./revisions.ts";
 import { metrics } from "../metrics.ts";
 
 export { resolveKvFlushIntervalMs } from "./config.ts";
@@ -183,4 +184,8 @@ export async function bootstrapCache(): Promise<void> {
   const proxyKeys = await kvGetAllProxyKeys();
   state.cachedProxyKeys = new Map(proxyKeys.map((k) => [k.id, k]));
   state.proxyKeyCacheLastLoadedAt = Date.now();
+  state.authCacheRevision = await getAuthCacheRevision();
+  state.authCacheRevisionLastCheckedAt = Date.now();
+  state.apiKeyCacheRevision = await getApiKeyCacheRevision();
+  state.apiKeyCacheRevisionLastCheckedAt = Date.now();
 }

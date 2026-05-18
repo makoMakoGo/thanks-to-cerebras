@@ -41,6 +41,11 @@ export class AppState {
     null;
   proxyKeyCacheLastLoadedAt = 0;
   dirtyProxyKeyIds = new Set<string>();
+  authCacheRevision = 0;
+  authCacheRevisionLastCheckedAt = 0;
+
+  apiKeyCacheRevision = 0;
+  apiKeyCacheRevisionLastCheckedAt = 0;
 
   addPendingTotalRequests(delta: number): void {
     if (!Number.isFinite(delta) || delta <= 0) return;

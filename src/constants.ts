@@ -15,6 +15,16 @@ export const ADMIN_PASSWORD_KEY = [
   "admin_password",
 ] as const;
 export const ADMIN_TOKEN_PREFIX = [KV_PREFIX, "auth", "token"] as const;
+export const AUTH_CACHE_REVISION_KEY = [
+  KV_PREFIX,
+  "meta",
+  "auth_cache_revision",
+] as const;
+export const API_KEY_CACHE_REVISION_KEY = [
+  KV_PREFIX,
+  "meta",
+  "api_key_cache_revision",
+] as const;
 
 // Retry and limits
 export const KV_ATOMIC_MAX_RETRIES = 10;

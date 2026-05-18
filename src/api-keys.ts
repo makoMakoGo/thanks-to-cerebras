@@ -1,6 +1,8 @@
 import { API_KEY_PREFIX } from "./constants.ts";
 import { toPersistedApiKey } from "./api-key-record.ts";
 import { state } from "./state.ts";
+import { getApiKeyCacheRevision } from "./kv/revisions.ts";
+import { kvMergeAllApiKeysIntoCache } from "./kv/api-keys.ts";
 
 export function rebuildActiveKeyIds(): void {
   const keys = Array.from(state.cachedKeysById.values());
@@ -49,6 +51,14 @@ export function getNextApiKeyFast(
   }
 
   return null;
+}
+
+export async function refreshApiKeyCacheIfChanged(): Promise<void> {
+  const revision = await getApiKeyCacheRevision();
+  state.apiKeyCacheRevisionLastCheckedAt = Date.now();
+  if (revision === state.apiKeyCacheRevision) return;
+  state.apiKeyCacheRevision = revision;
+  await kvMergeAllApiKeysIntoCache();
 }
 
 export function markKeyCooldownFrom429(id: string, response: Response): void {

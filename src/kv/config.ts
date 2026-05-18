@@ -8,6 +8,7 @@ import {
 import { normalizeKvFlushIntervalMs } from "../utils.ts";
 import { normalizeModelPool } from "../models.ts";
 import { state } from "../state.ts";
+import { bumpAuthCacheRevision } from "./revisions.ts";
 
 export function resolveKvFlushIntervalMs(config: ProxyConfig | null): number {
   const ms = config?.kvFlushIntervalMs ?? DEFAULT_KV_FLUSH_INTERVAL_MS;
@@ -135,6 +136,9 @@ export async function kvUpdateConfig(
       .commit();
     if (result.ok) {
       state.cachedConfig = validatedConfig;
+      if (validatedConfig.proxyPublicAccess !== entry.value.proxyPublicAccess) {
+        await bumpAuthCacheRevision();
+      }
       return validatedConfig;
     }
     const baseMs = Math.min(10 * 2 ** attempt, 500);

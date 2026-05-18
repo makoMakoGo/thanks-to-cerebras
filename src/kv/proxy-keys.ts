@@ -4,6 +4,7 @@ import { generateProxyKey } from "../keys.ts";
 import { generateId } from "../utils.ts";
 import { hashProxyKey, isHashedProxyKey } from "../secrets.ts";
 import { state } from "../state.ts";
+import { bumpAuthCacheRevision } from "./revisions.ts";
 
 type LegacyProxyAuthKey = Omit<ProxyAuthKey, "keyHash"> & { key: string };
 
@@ -133,6 +134,7 @@ export async function kvAddProxyKey(
 
   await state.kv.set([...PROXY_KEY_PREFIX, id], newKey);
   cachedKeys.set(id, newKey);
+  await bumpAuthCacheRevision();
 
   return { success: true, id, key };
 }
@@ -149,5 +151,6 @@ export async function kvDeleteProxyKey(
   await state.kv.delete(key);
   state.cachedProxyKeys?.delete(id);
   state.dirtyProxyKeyIds.delete(id);
+  await bumpAuthCacheRevision();
   return { success: true };
 }

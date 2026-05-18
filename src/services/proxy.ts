@@ -13,6 +13,7 @@ import {
   getNextApiKeyFast,
   markKeyCooldownFrom429,
   markKeyInvalid,
+  refreshApiKeyCacheIfChanged,
 } from "../api-keys.ts";
 import {
   getNextModelFast,
@@ -119,6 +120,7 @@ async function discardBoundedUpstreamErrorBody(
 export async function forwardChatCompletion(
   requestBody: Record<string, unknown>,
 ): Promise<ProxyResult> {
+  await refreshApiKeyCacheIfChanged();
   let apiKeyData = getNextApiKeyFast(Date.now());
   if (!apiKeyData) {
     await kvMergeAllApiKeysIntoCache();

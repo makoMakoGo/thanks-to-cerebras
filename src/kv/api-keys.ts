@@ -5,6 +5,7 @@ import { generateId } from "../utils.ts";
 import { rebuildActiveKeyIds } from "../api-keys.ts";
 import { decryptApiKey, encryptApiKey, isEncryptedApiKey } from "../secrets.ts";
 import { state } from "../state.ts";
+import { bumpApiKeyCacheRevision } from "./revisions.ts";
 
 type LegacyApiKey = Omit<ApiKey, "encryptedKey"> & { key: string };
 
@@ -38,6 +39,14 @@ export async function kvGetAllKeys(): Promise<ApiKey[]> {
 
 export async function kvMergeAllApiKeysIntoCache(): Promise<void> {
   const keys = await kvGetAllKeys();
+  const loadedIds = new Set(keys.map((key) => key.id));
+  for (const id of state.cachedKeysById.keys()) {
+    if (!loadedIds.has(id)) {
+      state.cachedKeysById.delete(id);
+      state.keyCooldownUntil.delete(id);
+      state.dirtyKeyIds.delete(id);
+    }
+  }
   for (const key of keys) {
     const local = state.cachedKeysById.get(key.id);
     if (!local) {
@@ -150,6 +159,7 @@ export async function kvAddKey(
   await state.kv.set([...API_KEY_PREFIX, id], toPersistedApiKey(newKey));
   state.cachedKeysById.set(id, newKey);
   rebuildActiveKeyIds();
+  await bumpApiKeyCacheRevision();
 
   return { success: true, id };
 }
@@ -168,6 +178,7 @@ export async function kvDeleteKey(
   state.keyCooldownUntil.delete(id);
   state.dirtyKeyIds.delete(id);
   rebuildActiveKeyIds();
+  await bumpApiKeyCacheRevision();
   return { success: true };
 }
 
@@ -183,4 +194,5 @@ export async function kvUpdateKey(
   await state.kv.set(key, toPersistedApiKey(updated));
   state.cachedKeysById.set(id, updated);
   rebuildActiveKeyIds();
+  await bumpApiKeyCacheRevision();
 }
