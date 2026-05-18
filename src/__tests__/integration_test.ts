@@ -933,6 +933,16 @@ Deno.test("integration: proxy validates chat request schema and cost bounds", as
   );
   assertEquals(tooManyOutputTokens.status, 400);
 
+  const nullOutputTokens = await handler(
+    makeReq("POST", "/v1/chat/completions", {
+      body: {
+        messages: [{ role: "user", content: "hi" }],
+        max_tokens: null,
+      },
+    }),
+  );
+  assertEquals(nullOutputTokens.status, 500);
+
   kv.close();
 });
 
@@ -961,7 +971,10 @@ Deno.test("integration: upstream non-2xx errors are sanitized", async () => {
     const text = await res.text();
     const body = JSON.parse(text);
     assertEquals(res.status, 401);
-    assertEquals(body.error, "上游请求失败");
+    assertEquals(body.error.message, "Upstream request failed");
+    assertEquals(body.error.type, "upstream_error");
+    assertEquals(body.error.param, null);
+    assertEquals(body.error.code, "upstream_error");
     assertEquals(text.includes("account secret detail"), false);
     assertEquals(res.headers.get("X-Trace-Id"), null);
     assertEquals(res.headers.get("Retry-After"), "7");

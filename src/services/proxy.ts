@@ -34,6 +34,7 @@ export type ProxyResult =
     kind: "error";
     message: string;
     status: number;
+    code?: string;
     retryAfterSec?: number;
     headers?: Headers;
   };
@@ -54,8 +55,9 @@ function buildSanitizedUpstreamError(response: Response): ProxyResult {
   applyStandardHeaders(headers);
   return {
     kind: "error",
-    message: "上游请求失败",
+    message: "Upstream request failed",
     status: response.status,
+    code: "upstream_error",
     headers,
   };
 }

@@ -40,6 +40,18 @@ export function jsonError(
   return jsonResponse({ error: message }, { status, headers, cors: "proxy" });
 }
 
+export function openAiErrorResponse(
+  message: string,
+  status: number,
+  code: string,
+  headers?: HeadersInit,
+): Response {
+  return jsonResponse(
+    { error: { message, type: code, param: null, code } },
+    { status, headers, cors: "proxy" },
+  );
+}
+
 export function adminJsonResponse(
   data: unknown,
   options: { status?: number; headers?: HeadersInit } = {},

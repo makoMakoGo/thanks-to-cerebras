@@ -115,6 +115,7 @@ function validateChatRequest(raw: unknown): ChatRequestValidation {
 
   if (
     body.max_tokens !== undefined &&
+    body.max_tokens !== null &&
     (!Number.isInteger(body.max_tokens) ||
       (body.max_tokens as number) < 1 ||
       (body.max_tokens as number) > MAX_CHAT_COMPLETION_TOKENS)

@@ -1,5 +1,5 @@
 import { EXTERNAL_MODEL_ID } from "../constants.ts";
-import { jsonError, jsonResponse } from "../http.ts";
+import { jsonError, jsonResponse, openAiErrorResponse } from "../http.ts";
 import { isProxyAuthorized, recordProxyKeyUsage } from "../auth.ts";
 import { forwardChatCompletion } from "../services/proxy.ts";
 import { readAndValidateChatRequest } from "../proxy-validation.ts";
@@ -41,6 +41,14 @@ async function handleProxyEndpoint(req: Request): Promise<Response> {
   const result = await forwardChatCompletion(validation.body);
 
   if (result.kind === "error") {
+    if (result.code) {
+      return openAiErrorResponse(
+        result.message,
+        result.status,
+        result.code,
+        result.headers,
+      );
+    }
     return jsonError(
       result.message,
       result.status,
