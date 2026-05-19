@@ -59,6 +59,7 @@ dist/
 build/
 out/
 coverage/
+reports/
 
 # Dependency directories
 node_modules/

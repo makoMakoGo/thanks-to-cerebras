@@ -4,6 +4,8 @@ on:
     branches: [main]
   push:
     branches: [main]
+  schedule:
+    - cron: "0 20 * * *"
   workflow_dispatch: {}
 permissions:
   contents: read
@@ -35,8 +37,25 @@ jobs:
         run: deno task unused-deps:check
       - name: deno check
         run: deno task check
-      - name: deno test
-        run: deno task test:unit
+      - name: deno test with coverage
+        run: deno task test:ci
+      - name: coverage threshold
+        run: |
+          deno task coverage:lcov
+          deno task coverage:check
+      - name: test performance report
+        run: deno task test:performance
+      - name: flaky test check
+        if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+        run: deno task test:flaky
+      - name: upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            reports/junit.xml
+            coverage/coverage.lcov
       - name: dast check
         env:
           KEY_ENCRYPTION_SECRET: ci-dast-key-encryption-secret
