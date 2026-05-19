@@ -8,12 +8,15 @@ import {
   updateModelPool,
   validateAndDeduplicateModels,
 } from "../services/models.ts";
+import { logger } from "../logger.ts";
 import type { Router } from "../router.ts";
 
 async function getModelCatalog(): Promise<Response> {
   try {
     const { catalog, stale, lastError } = await getCatalogData();
-    if (lastError) console.error("[MODELS] stale catalog error:", lastError);
+    if (lastError) {
+      logger.warn("model_catalog_stale", { reason: lastError });
+    }
     return adminJsonResponse({
       source: catalog.source,
       fetchedAt: catalog.fetchedAt,
@@ -23,7 +26,7 @@ async function getModelCatalog(): Promise<Response> {
       models: catalog.models,
     });
   } catch (error) {
-    console.error("[MODELS] catalog fetch error:", error);
+    logger.error("model_catalog_fetch_failed", {}, error);
     return adminProblemResponse("无法获取模型目录", {
       status: 502,
       instance: "/api/models/catalog",
@@ -34,7 +37,9 @@ async function getModelCatalog(): Promise<Response> {
 async function refreshCatalog(): Promise<Response> {
   try {
     const { catalog, stale, lastError } = await forceRefreshCatalog();
-    if (lastError) console.error("[MODELS] stale refresh error:", lastError);
+    if (lastError) {
+      logger.warn("model_catalog_refresh_stale", { reason: lastError });
+    }
     return adminJsonResponse({
       source: catalog.source,
       fetchedAt: catalog.fetchedAt,
@@ -44,7 +49,7 @@ async function refreshCatalog(): Promise<Response> {
       models: catalog.models,
     });
   } catch (error) {
-    console.error("[MODELS] catalog refresh error:", error);
+    logger.error("model_catalog_refresh_failed", {}, error);
     return adminProblemResponse("目录刷新失败", {
       status: 502,
       instance: "/api/models/catalog/refresh",
@@ -78,7 +83,7 @@ async function updateModels(req: Request): Promise<Response> {
     await updateModelPool(models);
     return adminJsonResponse({ success: true, models });
   } catch (error) {
-    console.error("[MODELS] update pool error:", error);
+    logger.error("model_pool_update_failed", {}, error);
     return adminProblemResponse("模型池更新失败", {
       status: 500,
       instance: "/api/models",

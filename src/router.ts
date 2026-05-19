@@ -1,7 +1,12 @@
 type Handler = (
   req: Request,
   params: Record<string, string>,
+  context: HandlerContext,
 ) => Response | Promise<Response>;
+
+export interface HandlerContext {
+  requestId: string;
+}
 
 interface Route {
   method: string;

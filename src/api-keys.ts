@@ -11,6 +11,7 @@ import {
   recordApiKeyCacheRevision,
 } from "./kv/revisions.ts";
 import { kvMergeAllApiKeysIntoCache } from "./kv/api-keys.ts";
+import { logger } from "./logger.ts";
 
 export function rebuildActiveKeyIds(): void {
   const keys = Array.from(state.cachedKeysById.values());
@@ -125,6 +126,6 @@ export async function markKeyInvalid(id: string): Promise<void> {
     recordApiKeyCacheRevision(revision);
   } catch (error) {
     state.dirtyKeyIds.add(id);
-    console.error("[KV] markKeyInvalid immediate write failed:", error);
+    logger.error("api_key_invalidation_write_failed", { keyId: id }, error);
   }
 }

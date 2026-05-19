@@ -23,6 +23,12 @@ import {
 import { kvMergeAllApiKeysIntoCache } from "../kv/api-keys.ts";
 import { removeModelFromPool } from "../kv/model-catalog.ts";
 import { metrics } from "../metrics.ts";
+import { logger } from "../logger.ts";
+import {
+  getUpstreamCircuitPermit,
+  recordUpstreamFailure,
+  recordUpstreamSuccess,
+} from "./upstream-circuit-breaker.ts";
 
 export type ProxyResult =
   | {
@@ -40,6 +46,8 @@ export type ProxyResult =
     retryAfterSec?: number;
     headers?: Headers;
   };
+
+type ProxyLogContext = Record<string, string | undefined>;
 
 function applyStandardHeaders(headers: Headers): void {
   for (const [key, value] of Object.entries(CORS_HEADERS)) {
@@ -119,6 +127,7 @@ async function discardBoundedUpstreamErrorBody(
 
 export async function forwardChatCompletion(
   requestBody: Record<string, unknown>,
+  context: ProxyLogContext = {},
 ): Promise<ProxyResult> {
   await refreshApiKeyCacheIfChanged();
   let apiKeyData = getNextApiKeyFast(Date.now());
@@ -157,6 +166,22 @@ export async function forwardChatCompletion(
     }
     const body = { ...requestBody, model: targetModel };
 
+    const circuitPermit = getUpstreamCircuitPermit();
+    if (!circuitPermit.allowed) {
+      const headers = new Headers({
+        "Retry-After": String(circuitPermit.retryAfterSec),
+      });
+      applyStandardHeaders(headers);
+      metrics.inc("proxy_requests_total", "upstream_circuit_open");
+      return {
+        kind: "error",
+        message: "上游服务暂时不可用",
+        status: 503,
+        code: "upstream_circuit_open",
+        headers,
+      };
+    }
+
     let apiResponse: Response;
     try {
       apiResponse = await fetchWithTimeout(
@@ -173,14 +198,23 @@ export async function forwardChatCompletion(
       );
     } catch (error) {
       if (isAbortError(error)) {
+        recordUpstreamFailure();
         metrics.inc("proxy_requests_total", "timeout");
         metrics.inc("upstream_responses_total", "timeout");
         return { kind: "error", message: "上游请求超时", status: 504 };
       }
-      console.error("[PROXY] upstream fetch error:", error);
+      recordUpstreamFailure();
+      logger.error("proxy_upstream_fetch_failed", context, error);
       metrics.inc("proxy_requests_total", "upstream_error");
       metrics.inc("upstream_responses_total", "network_error");
       return { kind: "error", message: "上游请求失败", status: 502 };
+    }
+
+    if (apiResponse.status >= 500) {
+      recordUpstreamFailure();
+      metrics.inc("upstream_responses_total", "5xx");
+    } else {
+      recordUpstreamSuccess();
     }
 
     if (apiResponse.status === 404) {

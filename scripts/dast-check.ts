@@ -30,6 +30,12 @@ const probes: Probe[] = [
     expectBodyIncludes: "ok",
   },
   {
+    name: "readiness check",
+    path: "/readyz",
+    expectedStatus: 200,
+    expectBodyIncludes: '"ready":true',
+  },
+  {
     name: "admin page is reachable",
     path: "/",
     expectedStatus: 200,

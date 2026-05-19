@@ -9,6 +9,7 @@ import { fetchWithTimeout } from "../utils.ts";
 import { normalizeModelPool, rebuildModelPoolCache } from "../models.ts";
 import { state } from "../state.ts";
 import { kvUpdateConfig } from "./config.ts";
+import { logger } from "../logger.ts";
 
 /**
  * Returns whether a model catalog is within the configured cache TTL.
@@ -103,7 +104,7 @@ export async function refreshModelCatalog(): Promise<ModelCatalog> {
     try {
       await state.kv.set(MODEL_CATALOG_KEY, catalog);
     } catch (error) {
-      console.error(`[KV] model catalog save failed:`, error);
+      logger.error("model_catalog_save_failed", {}, error);
     }
 
     return catalog;
@@ -145,6 +146,6 @@ export async function removeModelFromPool(
   rebuildModelPoolCache();
 
   if (existed) {
-    console.warn(`[MODEL] removed (${reason}): ${trimmed}`);
+    logger.warn("model_removed_from_pool", { reason, model: trimmed });
   }
 }

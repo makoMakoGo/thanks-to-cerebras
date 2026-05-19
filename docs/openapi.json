@@ -1,0 +1,1171 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Thanks to Cerebras API",
+    "version": "1.0.0",
+    "description": "OpenAPI schema for the OpenAI-compatible proxy and same-origin admin API. Every response includes x-request-id; clients may send X-Request-Id to propagate a correlation ID."
+  },
+  "servers": [{ "url": "/" }],
+  "tags": [
+    { "name": "Health" },
+    { "name": "Proxy" },
+    { "name": "Admin auth" },
+    { "name": "Admin keys" },
+    { "name": "Admin proxy keys" },
+    { "name": "Admin models" },
+    { "name": "Admin config" }
+  ],
+  "paths": {
+    "/": {
+      "get": {
+        "tags": ["Admin auth"],
+        "operationId": "getAdminPage",
+        "summary": "Serve the admin HTML shell",
+        "responses": {
+          "200": {
+            "description": "Admin HTML page",
+            "content": { "text/html": { "schema": { "type": "string" } } }
+          }
+        }
+      }
+    },
+    "/healthz": {
+      "get": {
+        "tags": ["Health"],
+        "operationId": "getHealthz",
+        "summary": "Health check",
+        "responses": {
+          "200": {
+            "description": "Service is healthy",
+            "content": {
+              "text/plain": { "schema": { "type": "string", "const": "ok" } }
+            }
+          }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "tags": ["Health"],
+        "operationId": "getReadyz",
+        "summary": "Readiness check for traffic routing",
+        "responses": {
+          "200": {
+            "description": "Service is ready",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Readiness" }
+              }
+            }
+          },
+          "503": {
+            "description": "Service is not ready",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Readiness" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/models": {
+      "get": {
+        "tags": ["Proxy"],
+        "operationId": "listPublicModels",
+        "summary": "List the proxy model exposed to OpenAI-compatible clients",
+        "responses": {
+          "200": {
+            "description": "OpenAI-compatible model list",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PublicModelList" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/chat/completions": {
+      "post": {
+        "tags": ["Proxy"],
+        "operationId": "createChatCompletion",
+        "summary": "Proxy an OpenAI-compatible chat completion request to Cerebras",
+        "description": "The request model field is accepted for compatibility but overwritten by the configured internal model rotation.",
+        "security": [{ "ProxyBearer": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ChatCompletionRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Upstream Cerebras response, including streamed responses when requested",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/UpstreamResponse" }
+              },
+              "text/event-stream": { "schema": { "type": "string" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/JsonError" },
+          "401": { "$ref": "#/components/responses/JsonError" },
+          "408": { "$ref": "#/components/responses/JsonError" },
+          "413": { "$ref": "#/components/responses/JsonError" },
+          "429": { "$ref": "#/components/responses/JsonError" },
+          "500": { "$ref": "#/components/responses/JsonError" },
+          "502": { "$ref": "#/components/responses/ProxyUpstreamError" },
+          "503": { "$ref": "#/components/responses/JsonError" },
+          "504": { "$ref": "#/components/responses/JsonError" }
+        }
+      }
+    },
+    "/api/auth/status": {
+      "get": {
+        "tags": ["Admin auth"],
+        "operationId": "getAuthStatus",
+        "summary": "Get admin setup and login status",
+        "parameters": [
+          { "$ref": "#/components/parameters/OptionalAdminToken" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Admin auth state",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AuthStatus" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/setup": {
+      "post": {
+        "tags": ["Admin auth"],
+        "operationId": "setupAdminAuth",
+        "summary": "Set the first admin password",
+        "security": [{ "SetupToken": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/PasswordRequest" },
+        "responses": {
+          "200": { "$ref": "#/components/responses/AdminTokenCreated" },
+          "400": { "$ref": "#/components/responses/Problem" },
+          "403": { "$ref": "#/components/responses/Problem" },
+          "415": { "$ref": "#/components/responses/Problem" },
+          "429": { "$ref": "#/components/responses/Problem" },
+          "503": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "tags": ["Admin auth"],
+        "operationId": "loginAdmin",
+        "summary": "Create an admin session token",
+        "requestBody": { "$ref": "#/components/requestBodies/PasswordRequest" },
+        "responses": {
+          "200": { "$ref": "#/components/responses/AdminTokenCreated" },
+          "400": { "$ref": "#/components/responses/Problem" },
+          "401": { "$ref": "#/components/responses/Problem" },
+          "415": { "$ref": "#/components/responses/Problem" },
+          "429": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": ["Admin auth"],
+        "operationId": "logoutAdmin",
+        "summary": "Delete an admin session token when supplied",
+        "parameters": [
+          { "$ref": "#/components/parameters/OptionalAdminToken" }
+        ],
+        "responses": { "200": { "$ref": "#/components/responses/Success" } }
+      }
+    },
+    "/api/keys": {
+      "get": {
+        "tags": ["Admin keys"],
+        "operationId": "listApiKeys",
+        "summary": "List stored Cerebras API key metadata",
+        "security": [{ "AdminToken": [] }],
+        "responses": {
+          "200": {
+            "description": "API key metadata list",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiKeyList" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Problem" }
+        }
+      },
+      "post": {
+        "tags": ["Admin keys"],
+        "operationId": "createApiKey",
+        "summary": "Add a Cerebras API key",
+        "security": [{ "AdminToken": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateApiKeyRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "API key added",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateApiKeyResponse"
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Problem" },
+          "401": { "$ref": "#/components/responses/Problem" },
+          "409": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/api/keys/batch": {
+      "post": {
+        "tags": ["Admin keys"],
+        "operationId": "batchImportApiKeys",
+        "summary": "Import multiple Cerebras API keys",
+        "security": [{ "AdminToken": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/BatchImportRequest" }
+            },
+            "text/plain": { "schema": { "type": "string" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Batch import summary",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BatchImportResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Problem" },
+          "401": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/api/keys/migrate": {
+      "post": {
+        "tags": ["Admin keys"],
+        "operationId": "migrateApiKeys",
+        "summary": "Migrate stored Cerebras API keys to encrypted storage",
+        "security": [{ "AdminToken": [] }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/Migrated" },
+          "401": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/api/keys/export": {
+      "get": {
+        "tags": ["Admin keys"],
+        "operationId": "exportAllApiKeys",
+        "summary": "Reject plaintext API key export",
+        "security": [{ "AdminToken": [] }],
+        "responses": { "403": { "$ref": "#/components/responses/Problem" } }
+      }
+    },
+    "/api/keys/{id}": {
+      "delete": {
+        "tags": ["Admin keys"],
+        "operationId": "deleteApiKey",
+        "summary": "Delete a Cerebras API key",
+        "security": [{ "AdminToken": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/IdPath" }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/Success" },
+          "400": { "$ref": "#/components/responses/Problem" },
+          "401": { "$ref": "#/components/responses/Problem" },
+          "404": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/api/keys/{id}/export": {
+      "get": {
+        "tags": ["Admin keys"],
+        "operationId": "exportApiKey",
+        "summary": "Reject plaintext API key export",
+        "security": [{ "AdminToken": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/IdPath" }],
+        "responses": { "403": { "$ref": "#/components/responses/Problem" } }
+      }
+    },
+    "/api/keys/{id}/test": {
+      "post": {
+        "tags": ["Admin keys"],
+        "operationId": "testApiKey",
+        "summary": "Test a Cerebras API key against the current model pool",
+        "security": [{ "AdminToken": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/IdPath" }],
+        "responses": {
+          "200": {
+            "description": "API key test result",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TestResult" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/api/proxy-keys": {
+      "get": {
+        "tags": ["Admin proxy keys"],
+        "operationId": "listProxyKeys",
+        "summary": "List proxy key metadata",
+        "security": [{ "AdminToken": [] }],
+        "responses": {
+          "200": {
+            "description": "Proxy key metadata list",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ProxyKeyList" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Problem" },
+          "500": { "$ref": "#/components/responses/Problem" }
+        }
+      },
+      "post": {
+        "tags": ["Admin proxy keys"],
+        "operationId": "createProxyKey",
+        "summary": "Create a proxy key; plaintext is returned once",
+        "security": [{ "AdminToken": [] }],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateProxyKeyRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Proxy key created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateProxyKeyResponse"
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Problem" },
+          "401": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/api/proxy-keys/migrate": {
+      "post": {
+        "tags": ["Admin proxy keys"],
+        "operationId": "migrateProxyKeys",
+        "summary": "Migrate proxy keys to hashed storage",
+        "security": [{ "AdminToken": [] }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/Migrated" },
+          "401": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/api/proxy-keys/{id}": {
+      "delete": {
+        "tags": ["Admin proxy keys"],
+        "operationId": "deleteProxyKey",
+        "summary": "Delete a proxy key",
+        "security": [{ "AdminToken": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/IdPath" }],
+        "responses": {
+          "200": { "$ref": "#/components/responses/Success" },
+          "400": { "$ref": "#/components/responses/Problem" },
+          "401": { "$ref": "#/components/responses/Problem" },
+          "404": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/api/proxy-keys/{id}/export": {
+      "get": {
+        "tags": ["Admin proxy keys"],
+        "operationId": "exportProxyKey",
+        "summary": "Reject proxy key export after creation",
+        "security": [{ "AdminToken": [] }],
+        "parameters": [{ "$ref": "#/components/parameters/IdPath" }],
+        "responses": { "403": { "$ref": "#/components/responses/Problem" } }
+      }
+    },
+    "/api/models/catalog": {
+      "get": {
+        "tags": ["Admin models"],
+        "operationId": "getModelCatalog",
+        "summary": "Get the cached Cerebras public model catalog",
+        "security": [{ "AdminToken": [] }],
+        "responses": {
+          "200": {
+            "description": "Model catalog",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ModelCatalog" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Problem" },
+          "502": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/api/models/catalog/refresh": {
+      "post": {
+        "tags": ["Admin models"],
+        "operationId": "refreshModelCatalog",
+        "summary": "Refresh the Cerebras public model catalog",
+        "security": [{ "AdminToken": [] }],
+        "responses": {
+          "200": {
+            "description": "Refreshed or stale fallback model catalog",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ModelCatalog" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Problem" },
+          "502": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/api/models": {
+      "get": {
+        "tags": ["Admin models"],
+        "operationId": "getModelPool",
+        "summary": "Get the active model pool",
+        "security": [{ "AdminToken": [] }],
+        "responses": {
+          "200": {
+            "description": "Active model pool",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ModelPool" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Problem" }
+        }
+      },
+      "put": {
+        "tags": ["Admin models"],
+        "operationId": "updateModelPool",
+        "summary": "Replace the active model pool",
+        "security": [{ "AdminToken": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateModelPoolRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated model pool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateModelPoolResponse"
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Problem" },
+          "401": { "$ref": "#/components/responses/Problem" },
+          "500": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/api/models/{name}/test": {
+      "post": {
+        "tags": ["Admin models"],
+        "operationId": "testModel",
+        "summary": "Test whether a model is usable with an active API key",
+        "security": [{ "AdminToken": [] }],
+        "parameters": [{
+          "name": "name",
+          "in": "path",
+          "required": true,
+          "description": "URL-encoded model name",
+          "schema": { "type": "string" }
+        }],
+        "responses": {
+          "200": {
+            "description": "Model test result",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TestResult" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Problem" },
+          "401": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/api/stats": {
+      "get": {
+        "tags": ["Admin config"],
+        "operationId": "getStats",
+        "summary": "Get key usage statistics",
+        "security": [{ "AdminToken": [] }],
+        "responses": {
+          "200": {
+            "description": "Usage statistics",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Stats" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/api/config": {
+      "get": {
+        "tags": ["Admin config"],
+        "operationId": "getConfig",
+        "summary": "Get runtime configuration",
+        "security": [{ "AdminToken": [] }],
+        "responses": {
+          "200": {
+            "description": "Runtime configuration",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Config" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Problem" }
+        }
+      },
+      "patch": {
+        "tags": ["Admin config"],
+        "operationId": "updateConfig",
+        "summary": "Update runtime configuration",
+        "security": [{ "AdminToken": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdateConfigRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated runtime configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateConfigResponse"
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/Problem" },
+          "401": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
+    "/api/metrics": {
+      "get": {
+        "tags": ["Admin config"],
+        "operationId": "getMetrics",
+        "summary": "Get in-memory counters",
+        "security": [{ "AdminToken": [] }],
+        "responses": {
+          "200": {
+            "description": "Metric families keyed by label",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Metrics" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "AdminToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Admin-Token"
+      },
+      "SetupToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Setup-Token"
+      },
+      "ProxyBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Proxy key supplied as Authorization: Bearer <proxy-key>. May be bypassed when proxyPublicAccess is enabled."
+      }
+    },
+    "headers": {
+      "XRequestId": {
+        "description": "Correlation ID echoed from X-Request-Id or generated per request",
+        "schema": { "type": "string" }
+      }
+    },
+    "parameters": {
+      "IdPath": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string" }
+      },
+      "OptionalAdminToken": {
+        "name": "X-Admin-Token",
+        "in": "header",
+        "required": false,
+        "schema": { "type": "string" }
+      }
+    },
+    "requestBodies": {
+      "PasswordRequest": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/PasswordRequest" }
+          }
+        }
+      }
+    },
+    "responses": {
+      "Problem": {
+        "description": "Problem Details error",
+        "headers": {
+          "x-request-id": { "$ref": "#/components/headers/XRequestId" }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": { "$ref": "#/components/schemas/Problem" }
+          }
+        }
+      },
+      "JsonError": {
+        "description": "Proxy JSON error",
+        "headers": {
+          "x-request-id": { "$ref": "#/components/headers/XRequestId" }
+        },
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/JsonError" }
+          }
+        }
+      },
+      "ProxyUpstreamError": {
+        "description": "Sanitized upstream error",
+        "headers": {
+          "x-request-id": { "$ref": "#/components/headers/XRequestId" }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "oneOf": [
+                { "$ref": "#/components/schemas/JsonError" },
+                { "$ref": "#/components/schemas/OpenAiError" }
+              ]
+            }
+          }
+        }
+      },
+      "AdminTokenCreated": {
+        "description": "Admin token created",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/AdminTokenResponse" }
+          }
+        }
+      },
+      "Success": {
+        "description": "Successful operation",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Success" }
+          }
+        }
+      },
+      "Migrated": {
+        "description": "Migration completed",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Migrated" }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Problem": {
+        "type": "object",
+        "required": ["type", "title", "status", "detail"],
+        "properties": {
+          "type": { "type": "string" },
+          "title": { "type": "string" },
+          "status": { "type": "integer" },
+          "detail": { "type": "string" },
+          "instance": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "JsonError": {
+        "type": "object",
+        "required": ["error"],
+        "properties": { "error": { "type": "string" } },
+        "additionalProperties": false
+      },
+      "OpenAiError": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["message", "type", "param", "code"],
+            "properties": {
+              "message": { "type": "string" },
+              "type": { "type": "string" },
+              "param": { "type": ["string", "null"] },
+              "code": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "Readiness": {
+        "type": "object",
+        "required": ["ready", "checks"],
+        "properties": {
+          "ready": { "type": "boolean" },
+          "checks": {
+            "type": "object",
+            "required": ["keyEncryptionSecret", "kv", "config"],
+            "properties": {
+              "keyEncryptionSecret": { "type": "boolean" },
+              "kv": { "type": "boolean" },
+              "config": { "type": "boolean" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "PublicModelList": {
+        "type": "object",
+        "required": ["object", "data"],
+        "properties": {
+          "object": { "type": "string", "const": "list" },
+          "data": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/PublicModel" }
+          }
+        },
+        "additionalProperties": false
+      },
+      "PublicModel": {
+        "type": "object",
+        "required": ["id", "object", "created", "owned_by"],
+        "properties": {
+          "id": { "type": "string" },
+          "object": { "type": "string", "const": "model" },
+          "created": { "type": "integer" },
+          "owned_by": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "ChatCompletionRequest": {
+        "type": "object",
+        "required": ["messages"],
+        "properties": {
+          "model": {
+            "type": "string",
+            "description": "Accepted for compatibility but overwritten by internal model rotation."
+          },
+          "messages": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 64,
+            "items": { "$ref": "#/components/schemas/ChatMessage" }
+          },
+          "max_tokens": {
+            "type": ["integer", "null"],
+            "minimum": 1,
+            "maximum": 8192
+          },
+          "stream": { "type": "boolean" }
+        },
+        "additionalProperties": true
+      },
+      "ChatMessage": {
+        "type": "object",
+        "required": ["role", "content"],
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": ["system", "user", "assistant", "tool"]
+          },
+          "content": {
+            "oneOf": [
+              { "type": "string", "maxLength": 16000 },
+              { "type": "null" },
+              {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/ChatContentPart" }
+              }
+            ]
+          }
+        },
+        "additionalProperties": true
+      },
+      "ChatContentPart": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string" },
+          "text": { "type": "string" }
+        },
+        "additionalProperties": true
+      },
+      "UpstreamResponse": {
+        "type": "object",
+        "description": "Opaque upstream Cerebras/OpenAI-compatible JSON response.",
+        "additionalProperties": true
+      },
+      "AuthStatus": {
+        "type": "object",
+        "required": ["hasPassword", "isLoggedIn"],
+        "properties": {
+          "hasPassword": { "type": "boolean" },
+          "isLoggedIn": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      },
+      "PasswordRequest": {
+        "type": "object",
+        "required": ["password"],
+        "properties": { "password": { "type": "string", "minLength": 4 } },
+        "additionalProperties": false
+      },
+      "AdminTokenResponse": {
+        "type": "object",
+        "required": ["success", "token"],
+        "properties": {
+          "success": { "type": "boolean", "const": true },
+          "token": { "type": "string", "format": "uuid" }
+        },
+        "additionalProperties": false
+      },
+      "Success": {
+        "type": "object",
+        "required": ["success"],
+        "properties": { "success": { "type": "boolean", "const": true } },
+        "additionalProperties": true
+      },
+      "Migrated": {
+        "type": "object",
+        "required": ["success", "migrated"],
+        "properties": {
+          "success": { "type": "boolean", "const": true },
+          "migrated": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      },
+      "ApiKeyList": {
+        "type": "object",
+        "required": ["keys"],
+        "properties": {
+          "keys": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ApiKeyMetadata" }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApiKeyMetadata": {
+        "type": "object",
+        "required": ["id", "useCount", "status", "createdAt"],
+        "properties": {
+          "id": { "type": "string" },
+          "useCount": { "type": "integer", "minimum": 0 },
+          "lastUsed": { "type": "integer" },
+          "status": {
+            "type": "string",
+            "enum": ["active", "inactive", "invalid"]
+          },
+          "createdAt": { "type": "integer" }
+        },
+        "additionalProperties": false
+      },
+      "CreateApiKeyRequest": {
+        "type": "object",
+        "required": ["key"],
+        "properties": { "key": { "type": "string" } },
+        "additionalProperties": false
+      },
+      "CreateApiKeyResponse": {
+        "type": "object",
+        "required": ["success", "id"],
+        "properties": {
+          "success": { "type": "boolean", "const": true },
+          "id": { "type": "string" }
+        },
+        "additionalProperties": true
+      },
+      "BatchImportRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": { "input": { "type": "string" } },
+            "additionalProperties": true
+          },
+          { "type": "string" }
+        ]
+      },
+      "BatchImportResponse": {
+        "type": "object",
+        "required": ["summary", "results"],
+        "properties": {
+          "summary": {
+            "type": "object",
+            "required": ["total", "success", "failed"],
+            "properties": {
+              "total": { "type": "integer" },
+              "success": { "type": "integer" },
+              "failed": { "type": "integer" }
+            },
+            "additionalProperties": false
+          },
+          "results": {
+            "type": "object",
+            "required": ["success", "failed"],
+            "properties": {
+              "success": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "failed": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["key", "error"],
+                  "properties": {
+                    "key": { "type": "string" },
+                    "error": { "type": "string" }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProxyKeyList": {
+        "type": "object",
+        "required": ["keys", "maxKeys", "authEnabled", "proxyPublicAccess"],
+        "properties": {
+          "keys": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ProxyKeyMetadata" }
+          },
+          "maxKeys": { "type": "integer" },
+          "authEnabled": { "type": "boolean", "const": true },
+          "proxyPublicAccess": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      },
+      "ProxyKeyMetadata": {
+        "type": "object",
+        "required": ["id", "name", "useCount", "createdAt"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "useCount": { "type": "integer" },
+          "lastUsed": { "type": "integer" },
+          "createdAt": { "type": "integer" }
+        },
+        "additionalProperties": false
+      },
+      "CreateProxyKeyRequest": {
+        "type": "object",
+        "properties": { "name": { "type": "string" } },
+        "additionalProperties": false
+      },
+      "CreateProxyKeyResponse": {
+        "type": "object",
+        "required": ["success", "id", "key"],
+        "properties": {
+          "success": { "type": "boolean", "const": true },
+          "id": { "type": "string" },
+          "key": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "ModelCatalog": {
+        "type": "object",
+        "required": ["source", "fetchedAt", "ttlMs", "stale", "models"],
+        "properties": {
+          "source": { "type": "string", "const": "cerebras-public" },
+          "fetchedAt": { "type": "integer" },
+          "ttlMs": { "type": "integer" },
+          "stale": { "type": "boolean" },
+          "lastError": { "type": "string" },
+          "models": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": false
+      },
+      "ModelPool": {
+        "type": "object",
+        "required": ["models"],
+        "properties": {
+          "models": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": false
+      },
+      "UpdateModelPoolRequest": {
+        "type": "object",
+        "required": ["models"],
+        "properties": {
+          "models": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string" }
+          }
+        },
+        "additionalProperties": false
+      },
+      "UpdateModelPoolResponse": {
+        "type": "object",
+        "required": ["success", "models"],
+        "properties": {
+          "success": { "type": "boolean", "const": true },
+          "models": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": false
+      },
+      "TestResult": {
+        "type": "object",
+        "required": ["success", "status"],
+        "properties": {
+          "success": { "type": "boolean" },
+          "status": { "type": "string" },
+          "error": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "Stats": {
+        "type": "object",
+        "required": ["totalKeys", "activeKeys", "totalRequests", "keyUsage"],
+        "properties": {
+          "totalKeys": { "type": "integer" },
+          "activeKeys": { "type": "integer" },
+          "totalRequests": { "type": "integer" },
+          "keyUsage": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/StatsKeyUsage" }
+          }
+        },
+        "additionalProperties": false
+      },
+      "StatsKeyUsage": {
+        "type": "object",
+        "required": ["id", "useCount", "status"],
+        "properties": {
+          "id": { "type": "string" },
+          "useCount": { "type": "integer" },
+          "status": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "Config": {
+        "type": "object",
+        "required": [
+          "modelPool",
+          "currentModelIndex",
+          "totalRequests",
+          "kvFlushIntervalMs",
+          "effectiveKvFlushIntervalMs",
+          "kvFlushIntervalMinMs",
+          "proxyPublicAccess"
+        ],
+        "properties": {
+          "modelPool": { "type": "array", "items": { "type": "string" } },
+          "currentModelIndex": { "type": "integer" },
+          "totalRequests": { "type": "integer" },
+          "kvFlushIntervalMs": { "type": "integer", "minimum": 1000 },
+          "effectiveKvFlushIntervalMs": { "type": "integer" },
+          "kvFlushIntervalMinMs": { "type": "integer", "const": 1000 },
+          "proxyPublicAccess": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      },
+      "UpdateConfigRequest": {
+        "type": "object",
+        "properties": {
+          "kvFlushIntervalMs": { "type": "number" },
+          "proxyPublicAccess": { "type": "boolean" }
+        },
+        "minProperties": 1,
+        "additionalProperties": false
+      },
+      "UpdateConfigResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "kvFlushIntervalMs",
+          "effectiveKvFlushIntervalMs",
+          "kvFlushIntervalMinMs",
+          "proxyPublicAccess"
+        ],
+        "properties": {
+          "success": { "type": "boolean", "const": true },
+          "kvFlushIntervalMs": { "type": "integer" },
+          "effectiveKvFlushIntervalMs": { "type": "integer" },
+          "kvFlushIntervalMinMs": { "type": "integer" },
+          "proxyPublicAccess": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      },
+      "Metrics": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": { "type": "number" }
+        }
+      }
+    }
+  }
+}

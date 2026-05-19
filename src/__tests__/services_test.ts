@@ -4,6 +4,12 @@ import { AppState, state } from "../state.ts";
 import { refreshModelCatalog } from "../kv/model-catalog.ts";
 import { kvAddKey, kvGetApiKeyById } from "../kv/api-keys.ts";
 import { testKey } from "../services/api-keys.ts";
+import {
+  getUpstreamCircuitPermit,
+  recordUpstreamFailure,
+  recordUpstreamSuccess,
+  resetUpstreamCircuitForTests,
+} from "../services/upstream-circuit-breaker.ts";
 
 async function setupKv(): Promise<Deno.Kv> {
   if (state.kvFlushTimerId !== null) {
@@ -13,6 +19,7 @@ async function setupKv(): Promise<Deno.Kv> {
   Deno.env.set("KEY_ENCRYPTION_SECRET", "test-key-encryption-secret");
   Object.assign(state, new AppState());
   state.kv = kv;
+  resetUpstreamCircuitForTests();
   return kv;
 }
 
@@ -98,4 +105,55 @@ Deno.test("refreshModelCatalog - rejects null JSON body", async () => {
     globalThis.fetch = originalFetch;
     kv.close();
   }
+});
+
+Deno.test("upstreamCircuitBreaker - opens after threshold failures", async () => {
+  const kv = await setupKv();
+  const now = Date.now();
+
+  recordUpstreamFailure(now);
+  assertEquals(getUpstreamCircuitPermit(now).allowed, true);
+  recordUpstreamFailure(now);
+  assertEquals(getUpstreamCircuitPermit(now).allowed, true);
+  recordUpstreamFailure(now);
+
+  const permit = getUpstreamCircuitPermit(now);
+  assertEquals(permit.allowed, false);
+  if (!permit.allowed) assertEquals(permit.retryAfterSec > 0, true);
+
+  kv.close();
+});
+
+Deno.test("upstreamCircuitBreaker - half-open success closes", async () => {
+  const kv = await setupKv();
+  const now = Date.now();
+
+  recordUpstreamFailure(now);
+  recordUpstreamFailure(now);
+  recordUpstreamFailure(now);
+  const halfOpen = getUpstreamCircuitPermit(now + 31_000);
+  assertEquals(halfOpen.allowed, true);
+
+  recordUpstreamSuccess();
+
+  assertEquals(getUpstreamCircuitPermit(now + 31_001).allowed, true);
+  assertEquals(state.upstreamCircuitFailureCount, 0);
+
+  kv.close();
+});
+
+Deno.test("upstreamCircuitBreaker - half-open failure reopens", async () => {
+  const kv = await setupKv();
+  const now = Date.now();
+
+  recordUpstreamFailure(now);
+  recordUpstreamFailure(now);
+  recordUpstreamFailure(now);
+  assertEquals(getUpstreamCircuitPermit(now + 31_000).allowed, true);
+  recordUpstreamFailure(now + 31_000);
+
+  const reopened = getUpstreamCircuitPermit(now + 31_001);
+  assertEquals(reopened.allowed, false);
+
+  kv.close();
 });

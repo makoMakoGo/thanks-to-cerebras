@@ -38,6 +38,7 @@ import {
   verifyAdminToken,
 } from "../auth.ts";
 import { readBoundedTextForTests } from "../proxy-validation.ts";
+import { setLogSinkForTests } from "../logger.ts";
 const BASE = "http://localhost";
 
 type Handler = (req: Request) => Promise<Response>;
@@ -79,6 +80,7 @@ async function setupKv(): Promise<Deno.Kv> {
   await resetKvRateLimitsForTests();
   await resetProxyStreamCountersForTests();
   metrics.reset();
+  setLogSinkForTests(() => {});
   return kv;
 }
 

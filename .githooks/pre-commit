@@ -11,6 +11,8 @@ if printf '%s\n' "$staged_files" | grep -Eq '(^|/)(main\.ts|deno\.json)$|^(src|s
   deno task fmt:check
   deno task lint
   deno task naming:check
+  deno task module-boundaries:check
+  deno task agents:check
   deno task check
 fi
 
@@ -24,4 +26,12 @@ fi
 
 if printf '%s\n' "$staged_files" | grep -Eq '(^|/)(deno\.json|deno\.lock)$|^(src|scripts)/.*\.(ts|js|mjs)$'; then
   deno task unused-deps:check
+fi
+
+if printf '%s\n' "$staged_files" | grep -Eq '(^|/)(deno\.json|docs/openapi\.json|scripts/(openapi-routes|validate-openapi)\.ts)$|^src/(app|handlers)/.*\.ts$'; then
+  deno task openapi:check
+fi
+
+if printf '%s\n' "$staged_files" | grep -Eq '(^|/)(AGENTS\.md|deno\.json|scripts/agents-check\.ts)$'; then
+  deno task agents:check
 fi

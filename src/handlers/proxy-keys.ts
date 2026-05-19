@@ -7,6 +7,7 @@ import {
   kvMigrateProxyKeysToHashed,
 } from "../kv/proxy-keys.ts";
 import { kvGetConfig } from "../kv/config.ts";
+import { logger } from "../logger.ts";
 import type { Router } from "../router.ts";
 
 async function listProxyKeys(): Promise<Response> {
@@ -30,7 +31,7 @@ async function listProxyKeys(): Promise<Response> {
       proxyPublicAccess: config.proxyPublicAccess,
     });
   } catch (error) {
-    console.error("[PROXY-KEYS] list keys error:", error);
+    logger.error("proxy_key_list_failed", {}, error);
     return adminProblemResponse("获取代理密钥列表失败", {
       status: 500,
       instance: "/api/proxy-keys",
@@ -50,7 +51,7 @@ async function createProxyKey(req: Request): Promise<Response> {
     }
     return adminJsonResponse(result, { status: 201 });
   } catch (error) {
-    console.error("[PROXY-KEYS] create key error:", error);
+    logger.error("proxy_key_create_failed", {}, error);
     return adminProblemResponse("创建失败", {
       status: 400,
       instance: "/api/proxy-keys",

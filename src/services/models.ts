@@ -22,6 +22,7 @@ import {
   rebuildModelPoolCache,
 } from "../models.ts";
 import { metrics } from "../metrics.ts";
+import { logger } from "../logger.ts";
 
 export interface CatalogResult {
   catalog: ModelCatalog;
@@ -170,7 +171,7 @@ export async function testModelAvailability(
       error: `HTTP ${response.status}`,
     };
   } catch (error) {
-    console.error("[MODELS] test model error for " + modelName + ":", error);
+    logger.error("model_test_failed", { model: modelName }, error);
     return {
       success: false,
       status: "error",

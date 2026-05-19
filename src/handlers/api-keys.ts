@@ -7,6 +7,7 @@ import {
   kvMigrateApiKeysToEncrypted,
 } from "../kv/api-keys.ts";
 import { testKey } from "../services/api-keys.ts";
+import { logger } from "../logger.ts";
 import type { Router } from "../router.ts";
 
 async function listApiKeys(): Promise<Response> {
@@ -42,7 +43,7 @@ async function addApiKey(req: Request): Promise<Response> {
 
     return adminJsonResponse(result, { status: 201 });
   } catch (error) {
-    console.error("[API-KEYS] add key error:", error);
+    logger.error("api_key_create_failed", {}, error);
     return adminProblemResponse("请求处理失败", {
       status: 400,
       instance: "/api/keys",
@@ -96,7 +97,7 @@ async function batchImportApiKeys(req: Request): Promise<Response> {
       results,
     });
   } catch (error) {
-    console.error("[API-KEYS] batch import error:", error);
+    logger.error("api_key_batch_import_failed", {}, error);
     return adminProblemResponse("请求处理失败", {
       status: 400,
       instance: "/api/keys/batch",

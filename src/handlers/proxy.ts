@@ -17,7 +17,7 @@ import {
   acquireProxyStreamSlots,
   boundProxyResponseBody,
 } from "../stream-limits.ts";
-import type { Router } from "../router.ts";
+import type { HandlerContext, Router } from "../router.ts";
 
 const PROXY_PUBLIC_KEY = "public";
 
@@ -66,7 +66,11 @@ function handleModelsEndpoint(): Response {
   });
 }
 
-async function handleProxyEndpoint(req: Request): Promise<Response> {
+async function handleProxyEndpoint(
+  req: Request,
+  _params: Record<string, string>,
+  context: HandlerContext,
+): Promise<Response> {
   const authResult = await isProxyAuthorized(req);
   if (!authResult.authorized) {
     const limited = await enforceRateLimit(
@@ -117,7 +121,9 @@ async function handleProxyEndpoint(req: Request): Promise<Response> {
 
   let result;
   try {
-    result = await forwardChatCompletion(validation.body);
+    result = await forwardChatCompletion(validation.body, {
+      requestId: context.requestId,
+    });
   } catch (error) {
     await streamSlots.release();
     throw error;

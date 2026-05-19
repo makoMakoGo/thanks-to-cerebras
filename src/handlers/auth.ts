@@ -14,6 +14,7 @@ import {
 import { compareSecret } from "../crypto.ts";
 import { checkKvRateLimit } from "../rate-limit.ts";
 import { metrics } from "../metrics.ts";
+import { logger } from "../logger.ts";
 import type { Router } from "../router.ts";
 
 const ADMIN_AUTH_LIMIT = {
@@ -110,7 +111,7 @@ async function setupAuth(req: Request): Promise<Response> {
     const token = await createAdminToken();
     return adminJsonResponse({ success: true, token });
   } catch (error) {
-    console.error("[AUTH] setup error:", error);
+    logger.error("admin_setup_failed", {}, error);
     return adminProblemResponse("请求处理失败", {
       status: 400,
       instance: "/api/auth/setup",
@@ -159,7 +160,7 @@ async function loginAuth(req: Request): Promise<Response> {
     const token = await createAdminToken();
     return adminJsonResponse({ success: true, token });
   } catch (error) {
-    console.error("[AUTH] login error:", error);
+    logger.error("admin_login_failed", {}, error);
     return adminProblemResponse("请求处理失败", {
       status: 400,
       instance: "/api/auth/login",

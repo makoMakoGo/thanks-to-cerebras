@@ -19,6 +19,7 @@ import { kvGetAllKeys } from "./api-keys.ts";
 import { kvGetAllProxyKeys } from "./proxy-keys.ts";
 import { getApiKeyCacheRevision, getAuthCacheRevision } from "./revisions.ts";
 import { metrics } from "../metrics.ts";
+import { logger } from "../logger.ts";
 
 export { resolveKvFlushIntervalMs } from "./config.ts";
 
@@ -144,7 +145,7 @@ export async function flushDirtyToKv(): Promise<void> {
       for (const id of proxyKeyIds) state.dirtyProxyKeyIds.add(id);
       state.dirtyConfig = state.dirtyConfig || flushConfig;
       metrics.inc("flush_total", "failure");
-      console.error(`[KV] flush failed:`, error);
+      logger.error("kv_stats_flush_failed", {}, error);
       return;
     }
 
@@ -164,7 +165,7 @@ export async function flushDirtyToKv(): Promise<void> {
     } catch (error) {
       state.dirtyConfig = true;
       metrics.inc("flush_total", "failure");
-      console.error(`[KV] config flush failed:`, error);
+      logger.error("kv_config_flush_failed", {}, error);
     }
   } finally {
     state.flushInProgress = false;

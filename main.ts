@@ -7,19 +7,18 @@ import {
 import { resolvePort } from "./src/utils.ts";
 import { createHandler, createRouter } from "./src/app.ts";
 import { assertKeyEncryptionSecretConfigured } from "./src/secrets.ts";
+import { logger } from "./src/logger.ts";
 
 if (import.meta.main) {
   const router = createRouter();
   const handler = createHandler(router);
 
-  // ================================
-  // 启动服务器
-  // ================================
-  console.log(`Cerebras Proxy 启动`);
-  console.log(`- 管理面板: /`);
-  console.log(`- API 代理: /v1/chat/completions`);
-  console.log(`- 模型接口: /v1/models`);
-  console.log(`- 存储: Deno KV`);
+  logger.info("server_starting", {
+    adminPath: "/",
+    proxyPath: "/v1/chat/completions",
+    modelsPath: "/v1/models",
+    storage: "Deno KV",
+  });
 
   assertKeyEncryptionSecretConfigured();
 
@@ -31,7 +30,7 @@ if (import.meta.main) {
     const FLUSH_TIMEOUT_MS = 5000;
 
     const shutdown = async (signal: string) => {
-      console.log(`\n[SHUTDOWN] ${signal} received, flushing dirty data...`);
+      logger.info("shutdown_started", { signal });
       try {
         await Promise.race([
           flushDirtyToKv(),
@@ -42,9 +41,9 @@ if (import.meta.main) {
             )
           ),
         ]);
-        console.log("[SHUTDOWN] flush complete.");
+        logger.info("shutdown_flush_complete", { signal });
       } catch (e) {
-        console.error("[SHUTDOWN] flush failed:", e);
+        logger.error("shutdown_flush_failed", { signal }, e);
       }
       Deno.exit(0);
     };

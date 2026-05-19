@@ -5,6 +5,7 @@ import type {
   ProxyConfig,
 } from "./types.ts";
 import { DEFAULT_KV_FLUSH_INTERVAL_MS } from "./constants.ts";
+import { logger } from "./logger.ts";
 
 let _isDenoDeployment: boolean | undefined;
 export function isDenoDeployment(): boolean {
@@ -35,6 +36,9 @@ export class AppState {
   modelCursor = 0;
   cachedModelCatalog: ModelCatalog | null = null;
   modelCatalogFetchInFlight: Promise<ModelCatalog> | null = null;
+  upstreamCircuitFailureCount = 0;
+  upstreamCircuitOpenedUntil = 0;
+  upstreamCircuitHalfOpenInFlight = false;
 
   cachedProxyKeys: Map<string, ProxyAuthKey> | null = null;
   proxyKeyCacheRefreshInFlight: Promise<Map<string, ProxyAuthKey>> | null =
@@ -80,7 +84,7 @@ export class AppState {
       ) {
         // Directory already exists
       } else {
-        console.error("[KV] 无法创建本地 KV 目录：", e);
+        logger.error("kv_local_directory_create_failed", { kvDir }, e);
         throw e;
       }
     }

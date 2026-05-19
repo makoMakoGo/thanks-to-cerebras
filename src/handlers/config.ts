@@ -9,6 +9,7 @@ import {
   resolveKvFlushIntervalMs,
 } from "../kv/config.ts";
 import { applyKvFlushInterval } from "../kv/flush.ts";
+import { logger } from "../logger.ts";
 import type { Router } from "../router.ts";
 
 async function getStats(): Promise<Response> {
@@ -78,7 +79,7 @@ async function updateConfig(req: Request): Promise<Response> {
       proxyPublicAccess: next.proxyPublicAccess,
     });
   } catch (error) {
-    console.error("[CONFIG] update error:", error);
+    logger.error("config_update_failed", {}, error);
     return adminProblemResponse("配置更新失败", {
       status: 400,
       instance: "/api/config",

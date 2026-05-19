@@ -4,6 +4,7 @@ import { state } from "../state.ts";
 import { kvGetApiKeyById, kvUpdateKey } from "../kv/api-keys.ts";
 import { removeModelFromPool } from "../kv/model-catalog.ts";
 import { isModelNotFoundPayload, isModelNotFoundText } from "../models.ts";
+import { logger } from "../logger.ts";
 
 /**
  * Tests an API key against the configured model pool; an empty pool is a config error.
@@ -78,7 +79,7 @@ export async function testKey(
       error: `HTTP ${response.status}`,
     };
   } catch (error) {
-    console.error("[API-KEYS] test key error for ID " + id + ":", error);
+    logger.error("api_key_test_failed", { keyId: id }, error);
     await kvUpdateKey(id, { status: "inactive" });
     return {
       success: false,
