@@ -4,6 +4,8 @@
     "exclude": ["src/ui/admin.html"]
   },
   "deploy": {
+    "org": "lovingfish",
+    "app": "thanks-to-cerebras",
     "runtime": {
       "type": "dynamic",
       "entrypoint": "main.ts"
