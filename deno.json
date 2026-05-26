@@ -36,7 +36,7 @@
     "openapi:check": "deno run --allow-read scripts/validate-openapi.ts",
     "dast:check": "deno run --allow-net --allow-env scripts/dast-check.ts",
     "fmt:check": "deno fmt --check main.ts src scripts/*.ts",
-    "hooks:install": "git config core.hooksPath .githooks && chmod +x .githooks/pre-commit",
+    "hooks:install": "git config core.hooksPath .githooks && chmod +x .githooks/pre-commit .githooks/post-push",
     "docstring:coverage": "deno run --allow-read scripts/docstring-coverage.mjs --threshold 80"
   },
   "imports": {

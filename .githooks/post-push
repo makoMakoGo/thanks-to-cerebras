@@ -1,0 +1,24 @@
+#!/usr/bin/env sh
+set -eu
+
+remote_name="${1:-}"
+fork_remote="git@github.com-lovingfish:lovingfish/thanks-to-cerebras.git"
+should_sync=0
+zero_oid="0000000000000000000000000000000000000000"
+
+if [ "$remote_name" != "origin" ]; then
+  exit 0
+fi
+
+while read -r local_ref local_oid remote_ref _remote_oid; do
+  if [ "$local_ref" = "refs/heads/main" ] &&
+    [ "$remote_ref" = "refs/heads/main" ] &&
+    [ "$local_oid" != "$zero_oid" ]; then
+    should_sync=1
+  fi
+done
+
+if [ "$should_sync" = "1" ]; then
+  echo "Syncing lovingfish fork from origin/main..."
+  git push "$fork_remote" refs/heads/main:refs/heads/main
+fi
