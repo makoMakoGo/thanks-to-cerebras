@@ -1,27 +1,22 @@
 import type { ApiKey } from "../types.ts";
-import { type PersistedApiKey, toPersistedApiKey } from "../api-key-record.ts";
+import {
+  assertCurrentApiKey,
+  type PersistedApiKey,
+  toPersistedApiKey,
+} from "../api-key-record.ts";
 import { API_KEY_CACHE_REVISION_KEY, API_KEY_PREFIX } from "../constants.ts";
 import { generateId } from "../utils.ts";
+import { sha256Hex } from "../crypto.ts";
 import { rebuildActiveKeyIds } from "../api-keys.ts";
-import { decryptApiKey, encryptApiKey, isEncryptedApiKey } from "../secrets.ts";
+import { decryptApiKey, encryptApiKey } from "../secrets.ts";
 import { state } from "../state.ts";
 import {
   getNextRevisionValue,
   recordApiKeyCacheRevision,
 } from "./revisions.ts";
+import { valueIndexKey } from "./api-keys-index.ts";
 
 type LegacyApiKey = Omit<ApiKey, "encryptedKey"> & { key: string };
-
-function assertCurrentApiKey(value: unknown): PersistedApiKey {
-  const raw = value as Record<string, unknown>;
-  if (typeof raw.encryptedKey !== "string") {
-    throw new Error("API key 存储格式不兼容：需要先运行密钥迁移");
-  }
-  if (!isEncryptedApiKey(raw.encryptedKey)) {
-    throw new Error("API key 密文格式错误");
-  }
-  return raw as unknown as PersistedApiKey;
-}
 
 async function hydrateApiKey(value: unknown): Promise<ApiKey> {
   const persisted = assertCurrentApiKey(value);
@@ -137,11 +132,18 @@ let lastApiKeyCreatedAtMs = 0;
 export async function kvAddKey(
   key: string,
 ): Promise<{ success: boolean; id?: string; error?: string }> {
+  // The in-memory cache check is an optimistic fast path: if THIS instance
+  // already knows the value, skip the KV roundtrips. The authoritative
+  // duplicate check is the value-index entry below, which catches the
+  // multi-instance / stale-cache case described in issue #139.
   const allKeys = Array.from(state.cachedKeysById.values());
   const existingKey = allKeys.find((k) => k.key === key);
   if (existingKey) {
     return { success: false, error: "密钥已存在" };
   }
+
+  const valueDigest = await sha256Hex(key);
+  const indexKey = valueIndexKey(valueDigest);
 
   const id = generateId();
   const now = Date.now();
@@ -159,18 +161,26 @@ export async function kvAddKey(
     createdAt,
   };
 
-  const [revisionEntry, idEntry] = await Promise.all([
+  const [revisionEntry, idEntry, indexEntry] = await Promise.all([
     state.kv.get<number>(API_KEY_CACHE_REVISION_KEY),
     state.kv.get([...API_KEY_PREFIX, id]),
+    state.kv.get<string>(indexKey),
   ]);
   if (idEntry.value !== null) {
     return { success: false, error: "密钥保存冲突，请重试" };
   }
+  if (indexEntry.value !== null) {
+    // Another instance (or a previous request that landed before this
+    // instance's cache caught up) already persisted this exact value.
+    return { success: false, error: "密钥已存在" };
+  }
   const revision = getNextRevisionValue(revisionEntry);
   const result = await state.kv.atomic()
     .check(idEntry)
+    .check(indexEntry)
     .check(revisionEntry)
     .set([...API_KEY_PREFIX, id], toPersistedApiKey(newKey))
+    .set(indexKey, id)
     .set(API_KEY_CACHE_REVISION_KEY, revision)
     .commit();
   if (!result.ok) {
@@ -187,19 +197,38 @@ export async function kvDeleteKey(
   id: string,
 ): Promise<{ success: boolean; error?: string }> {
   const key = [...API_KEY_PREFIX, id];
-  const result = await state.kv.get(key);
+  const result = await state.kv.get<PersistedApiKey>(key);
   if (!result.value) {
     return { success: false, error: "密钥不存在" };
   }
 
+  // Resolve the value digest so the secondary index entry can be removed
+  // atomically alongside the main record. Prefer the in-memory plaintext
+  // (avoid one decrypt round-trip) and fall back to decrypting the
+  // persisted record if the cache doesn't have it.
+  const cached = state.cachedKeysById.get(id);
+  const plaintext = cached?.key ??
+    await decryptApiKey(result.value.encryptedKey);
+  const valueDigest = await sha256Hex(plaintext);
+  const indexKey = valueIndexKey(valueDigest);
+  const indexEntry = await state.kv.get<string>(indexKey);
+
   const revisionEntry = await state.kv.get<number>(API_KEY_CACHE_REVISION_KEY);
   const revision = getNextRevisionValue(revisionEntry);
-  const deleteResult = await state.kv.atomic()
+  let atomic = state.kv.atomic()
     .check(result)
     .check(revisionEntry)
     .delete(key)
-    .set(API_KEY_CACHE_REVISION_KEY, revision)
-    .commit();
+    .set(API_KEY_CACHE_REVISION_KEY, revision);
+  if (indexEntry.value === id) {
+    // Only delete the index entry when it actually points at this id —
+    // a legacy record may pre-date the index (no entry to delete) and a
+    // pre-existing duplicate could share the same digest with a different
+    // surviving id, in which case the index must keep pointing at the
+    // survivor.
+    atomic = atomic.check(indexEntry).delete(indexKey);
+  }
+  const deleteResult = await atomic.commit();
   if (!deleteResult.ok) {
     return { success: false, error: "密钥删除失败，请重试" };
   }

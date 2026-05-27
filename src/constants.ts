@@ -8,6 +8,15 @@ export const KV_PREFIX = "cerebras-proxy";
 export const CONFIG_KEY = [KV_PREFIX, "meta", "config"] as const;
 export const MODEL_CATALOG_KEY = [KV_PREFIX, "meta", "model_catalog"] as const;
 export const API_KEY_PREFIX = [KV_PREFIX, "keys", "api"] as const;
+// Secondary index keyed by sha256 of the plaintext key value, mapping back
+// to the api-key id. Lets kvAddKey detect a same-value duplicate even when
+// the in-memory cache is stale (e.g. another instance just added the same
+// value, or this instance's revision check hasn't caught up yet). See #139.
+export const API_KEY_VALUE_INDEX_PREFIX = [
+  KV_PREFIX,
+  "keys",
+  "api_value_idx",
+] as const;
 export const PROXY_KEY_PREFIX = [KV_PREFIX, "keys", "proxy"] as const;
 export const ADMIN_PASSWORD_KEY = [
   KV_PREFIX,
