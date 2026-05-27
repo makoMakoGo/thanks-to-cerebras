@@ -6,7 +6,9 @@ import {
 import {
   createAdminToken,
   deleteAdminToken,
+  deleteAllAdminTokens,
   getAdminPassword,
+  resetAdminPassword,
   setAdminPasswordIfUnset,
   verifyAdminPassword,
   verifyAdminToken,
@@ -180,6 +182,80 @@ async function logoutAuth(req: Request): Promise<Response> {
 }
 
 /**
+ * Resets the admin password using the SETUP_TOKEN as the only credential.
+ *
+ * The threat model here is "old password leaked / forgotten":
+ * - We deliberately do NOT accept the previous password as a second
+ *   factor. If it leaked, an attacker could lock the legitimate operator
+ *   out and there'd be no recovery.
+ * - SETUP_TOKEN lives in the deploy environment variables, which only
+ *   the deploy operator controls. Treat it as the recovery key.
+ *
+ * Cheap, side-effect-free checks (Content-Type, SETUP_TOKEN configured,
+ * X-Setup-Token match) run BEFORE the rate-limit bucket is consumed —
+ * same pattern as setupAuth — so unauthenticated traffic cannot fill the
+ * shared admin-auth bucket and DoS the legitimate operator during
+ * recovery.
+ */
+async function resetPasswordAuth(req: Request): Promise<Response> {
+  const contentType = req.headers.get("Content-Type");
+  if (!contentType || !contentType.toLowerCase().includes("application/json")) {
+    return adminProblemResponse("请求体必须是 application/json", {
+      status: 415,
+      instance: "/api/auth/reset-password",
+    });
+  }
+
+  const setupToken = Deno.env.get("SETUP_TOKEN");
+  if (!setupToken) {
+    return adminProblemResponse("SETUP_TOKEN 未配置，禁止重置密码", {
+      status: 503,
+      instance: "/api/auth/reset-password",
+    });
+  }
+  const providedToken = req.headers.get("X-Setup-Token") ?? "";
+  if (!(await compareSecret(providedToken, setupToken))) {
+    return adminProblemResponse("初始化令牌错误", {
+      status: 403,
+      instance: "/api/auth/reset-password",
+    });
+  }
+
+  const key = getRateLimitKey(req);
+  const limit = await checkKvRateLimit(ADMIN_AUTH_LIMIT, key);
+  if (!limit.allowed) {
+    metrics.inc("rate_limit_hits_total", "reset-password");
+    const retryAfter = Math.ceil(limit.retryAfterMs / 1000);
+    return adminProblemResponse("请求过于频繁", {
+      status: 429,
+      instance: "/api/auth/reset-password",
+      headers: { "Retry-After": String(retryAfter) },
+    });
+  }
+
+  try {
+    const { password } = await req.json();
+    if (typeof password !== "string" || password.length < 8) {
+      return adminProblemResponse("密码至少 8 位", {
+        status: 400,
+        instance: "/api/auth/reset-password",
+      });
+    }
+    await resetAdminPassword(password);
+    const revokedTokens = await deleteAllAdminTokens();
+    const token = await createAdminToken();
+    logger.info("admin_password_reset", { revokedTokens });
+    return adminJsonResponse({ success: true, token });
+  } catch (error) {
+    logger.error("admin_password_reset_failed", {}, error);
+    return adminProblemResponse("请求处理失败", {
+      status: 400,
+      instance: "/api/auth/reset-password",
+    });
+  }
+}
+
+/**
  * Registers the admin authentication routes on the shared router.
  */
 export function register(router: Router): void {
@@ -187,5 +263,6 @@ export function register(router: Router): void {
     .get("/api/auth/status", getAuthStatus)
     .post("/api/auth/setup", setupAuth)
     .post("/api/auth/login", loginAuth)
-    .post("/api/auth/logout", logoutAuth);
+    .post("/api/auth/logout", logoutAuth)
+    .post("/api/auth/reset-password", resetPasswordAuth);
 }

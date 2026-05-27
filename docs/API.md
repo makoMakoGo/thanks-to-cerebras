@@ -91,6 +91,20 @@
 - Header：`X-Admin-Token`
 - 响应：`{ "success": true }`
 
+### 3.5 `POST /api/auth/reset-password`
+
+- 描述：用 `SETUP_TOKEN` 重置管理密码。**故意不**接受旧密码作为凭证——旧密码一旦泄露就无法挽回，所以恢复通道走部署侧独享的 `SETUP_TOKEN`。
+- Header：`X-Setup-Token: <SETUP_TOKEN>`
+- Content-Type：`application/json`
+- 请求体：`{ "password": string }`，密码长度 ≥ 8
+- 行为：
+  - 直接覆盖写入新密码哈希
+  - 撤销所有现存 admin token（包括调用方的旧 token）
+  - 给调用方签一个新 token 返回，便于直接登录
+  - 与 `/api/auth/login` 共用 admin-auth 限流桶，廉价校验失败的请求**不会**消耗桶
+- 响应：`{ "success": true, "token": string }`
+- 推荐操作流程：用完后立刻把 Deno Deploy 上的 `SETUP_TOKEN` env 删掉或改成废值，关闸到下次需要恢复时再开。
+
 ## 4. 管理 API（需要登录）
 
 > 以下接口都需要 Header：`X-Admin-Token`

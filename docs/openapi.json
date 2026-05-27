@@ -186,6 +186,24 @@
         "responses": { "200": { "$ref": "#/components/responses/Success" } }
       }
     },
+    "/api/auth/reset-password": {
+      "post": {
+        "tags": ["Admin auth"],
+        "operationId": "resetAdminPassword",
+        "summary": "Reset the admin password using SETUP_TOKEN",
+        "description": "Overwrites the stored admin password unconditionally and revokes every existing admin session. Guarded only by the SETUP_TOKEN environment variable so a forgotten or compromised password can be recovered without direct KV access. The previous password is intentionally NOT accepted as a credential.",
+        "security": [{ "SetupToken": [] }],
+        "requestBody": { "$ref": "#/components/requestBodies/PasswordRequest" },
+        "responses": {
+          "200": { "$ref": "#/components/responses/AdminTokenCreated" },
+          "400": { "$ref": "#/components/responses/Problem" },
+          "403": { "$ref": "#/components/responses/Problem" },
+          "415": { "$ref": "#/components/responses/Problem" },
+          "429": { "$ref": "#/components/responses/Problem" },
+          "503": { "$ref": "#/components/responses/Problem" }
+        }
+      }
+    },
     "/api/keys": {
       "get": {
         "tags": ["Admin keys"],

@@ -41,6 +41,19 @@ export async function setAdminPasswordIfUnset(
 }
 
 /**
+ * Replaces the stored admin password hash unconditionally.
+ *
+ * Used by the SETUP_TOKEN-guarded reset flow: callers MUST verify the
+ * setup token before invoking this, since this function intentionally
+ * does not check the previous value (so a forgotten/compromised password
+ * can be recovered without touching KV directly).
+ */
+export async function resetAdminPassword(password: string): Promise<void> {
+  const hash = await hashPassword(password);
+  await state.kv.set(ADMIN_PASSWORD_KEY, hash);
+}
+
+/**
  * Verifies a submitted admin password against the stored PBKDF2 hash.
  */
 export async function verifyAdminPassword(password: string): Promise<boolean> {
@@ -86,6 +99,24 @@ export async function verifyAdminToken(token: string | null): Promise<boolean> {
  */
 export async function deleteAdminToken(token: string): Promise<void> {
   await state.kv.delete([...ADMIN_TOKEN_PREFIX, await hashProxyKey(token)]);
+}
+
+/**
+ * Revokes every existing admin session token.
+ *
+ * Called from the password reset flow so a recovered account cannot be
+ * silently kept open through previously issued tokens (including ones
+ * stolen alongside the old password). Returns the number of tokens
+ * actually removed for logging/metrics.
+ */
+export async function deleteAllAdminTokens(): Promise<number> {
+  let count = 0;
+  const iter = state.kv.list<number>({ prefix: [...ADMIN_TOKEN_PREFIX] });
+  for await (const entry of iter) {
+    await state.kv.delete(entry.key);
+    count++;
+  }
+  return count;
 }
 
 /**

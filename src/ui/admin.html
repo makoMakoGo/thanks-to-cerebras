@@ -333,6 +333,10 @@
         <h2 style="color: #f1f5f9; font-size: 18px;"><span style="background: linear-gradient(135deg, #06b6d4, #3b82f6); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Cerebras</span> Translator</h2>
       </div>
       <p id="authTitle" style="color: #94a3b8; font-size: 12px; text-align: center; margin-bottom: 20px;">加载中...</p>
+      <div id="resetSetupTokenGroup" class="form-group" style="display: none;">
+        <label>SETUP_TOKEN</label>
+        <input type="password" id="resetSetupToken" class="form-control" placeholder="部署环境变量 SETUP_TOKEN">
+      </div>
       <div class="form-group">
         <label id="passwordLabel">密码</label>
         <input type="password" id="authPassword" class="form-control" placeholder="输入密码">
@@ -343,6 +347,10 @@
       </div>
       <button class="btn" id="authBtn" onclick="handleAuth()" style="width: 100%; padding: 10px; font-size: 13px;">提交</button>
       <p id="authError" style="color: #f87171; font-size: 11px; text-align: center; margin-top: 10px; display: none;"></p>
+      <p style="text-align: center; margin-top: 12px; font-size: 11px;">
+        <a id="resetLink" href="#" onclick="switchAuthMode('reset'); return false;" style="color: #94a3b8; text-decoration: none;">忘记密码？用 SETUP_TOKEN 重置</a>
+        <a id="loginLink" href="#" onclick="switchAuthMode('login'); return false;" style="color: #94a3b8; text-decoration: none; display: none;">返回登录</a>
+      </p>
     </div>
   </div>
 
@@ -405,15 +413,22 @@
           authMode = 'setup';
           document.getElementById('authTitle').textContent = '首次使用，请设置管理密码';
           document.getElementById('passwordLabel').textContent = '新密码（至少 4 位）';
+          document.getElementById('resetSetupTokenGroup').style.display = 'none';
           document.getElementById('confirmGroup').style.display = 'block';
           document.getElementById('authBtn').textContent = '设置密码';
+          // Reset link is meaningless before any password exists.
+          document.getElementById('resetLink').style.display = 'none';
+          document.getElementById('loginLink').style.display = 'none';
           document.getElementById('authOverlay').style.display = 'flex';
         } else if (!data.isLoggedIn) {
           authMode = 'login';
           document.getElementById('authTitle').textContent = '请登录以继续';
           document.getElementById('passwordLabel').textContent = '密码';
+          document.getElementById('resetSetupTokenGroup').style.display = 'none';
           document.getElementById('confirmGroup').style.display = 'none';
           document.getElementById('authBtn').textContent = '登录';
+          document.getElementById('resetLink').style.display = 'inline';
+          document.getElementById('loginLink').style.display = 'none';
           document.getElementById('authOverlay').style.display = 'flex';
         } else {
           document.getElementById('authOverlay').style.display = 'none';
@@ -430,6 +445,42 @@
       const el = document.getElementById('authError');
       el.textContent = msg;
       el.style.display = 'block';
+    }
+
+    function switchAuthMode(mode) {
+      // Only allowed transition is between 'login' and 'reset'. The
+      // first-run 'setup' mode is decided by checkAuth() based on
+      // whether a password has ever been stored, so we never expose a
+      // way to flip into it from the UI.
+      if (authMode === 'setup') return;
+      authMode = mode;
+      document.getElementById('authError').style.display = 'none';
+      document.getElementById('authPassword').value = '';
+      document.getElementById('authConfirm').value = '';
+      document.getElementById('resetSetupToken').value = '';
+
+      const setupTokenGroup = document.getElementById('resetSetupTokenGroup');
+      const confirmGroup = document.getElementById('confirmGroup');
+      const resetLink = document.getElementById('resetLink');
+      const loginLink = document.getElementById('loginLink');
+
+      if (mode === 'reset') {
+        document.getElementById('authTitle').textContent = '通过 SETUP_TOKEN 重置管理密码';
+        document.getElementById('passwordLabel').textContent = '新密码（至少 8 位）';
+        setupTokenGroup.style.display = 'block';
+        confirmGroup.style.display = 'block';
+        document.getElementById('authBtn').textContent = '重置密码';
+        resetLink.style.display = 'none';
+        loginLink.style.display = 'inline';
+      } else {
+        document.getElementById('authTitle').textContent = '请登录以继续';
+        document.getElementById('passwordLabel').textContent = '密码';
+        setupTokenGroup.style.display = 'none';
+        confirmGroup.style.display = 'none';
+        document.getElementById('authBtn').textContent = '登录';
+        resetLink.style.display = 'inline';
+        loginLink.style.display = 'none';
+      }
     }
 
     async function handleAuth() {
@@ -450,6 +501,29 @@
           }
           if (data.success && data.token) { adminToken = data.token; localStorage.setItem('adminToken', adminToken); checkAuth(); }
           else showAuthError('设置失败');
+        } catch (e) { showAuthError('错误: ' + formatClientError(e)); }
+      } else if (authMode === 'reset') {
+        const confirm = document.getElementById('authConfirm').value;
+        const setupToken = document.getElementById('resetSetupToken').value;
+        if (!setupToken) { showAuthError('请输入 SETUP_TOKEN'); return; }
+        if (password.length < 8) { showAuthError('新密码至少 8 位'); return; }
+        if (password !== confirm) { showAuthError('两次密码不一致'); return; }
+        try {
+          const res = await fetch('/api/auth/reset-password', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Setup-Token': setupToken }, body: JSON.stringify({ password }) });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            showAuthError(getApiErrorMessage(res, data) || '重置失败');
+            return;
+          }
+          if (data.success && data.token) {
+            adminToken = data.token;
+            localStorage.setItem('adminToken', adminToken);
+            switchAuthMode('login');
+            checkAuth();
+            showNotification('密码已重置，所有旧会话已失效');
+          } else {
+            showAuthError('重置失败');
+          }
         } catch (e) { showAuthError('错误: ' + formatClientError(e)); }
       } else {
         try {

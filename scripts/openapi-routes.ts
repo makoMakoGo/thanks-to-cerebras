@@ -13,6 +13,7 @@ export const EXPECTED_ROUTES: Route[] = [
   { method: "post", path: "/api/auth/setup" },
   { method: "post", path: "/api/auth/login" },
   { method: "post", path: "/api/auth/logout" },
+  { method: "post", path: "/api/auth/reset-password" },
   { method: "get", path: "/api/keys" },
   { method: "post", path: "/api/keys" },
   { method: "post", path: "/api/keys/batch" },
