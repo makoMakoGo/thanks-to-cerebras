@@ -70,7 +70,7 @@ export async function readBoundedTextForTests(
         return { ok: false, status: 408, message: "请求体读取超时" };
       }
       const read = reader.read();
-      let timerId: number | undefined;
+      let timerId: ReturnType<typeof setTimeout> | undefined;
       const timeout = new Promise<"timeout">((resolve) => {
         timerId = setTimeout(
           () => resolve("timeout"),
