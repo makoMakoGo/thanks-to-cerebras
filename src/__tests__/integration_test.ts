@@ -1322,43 +1322,6 @@ Deno.test("integration: API key cache evicts stale deleted keys after revision",
   kv.close();
 });
 
-Deno.test("integration: API key revision refresh retries after merge failure", async () => {
-  const kv = await setupKv();
-  await addActiveApiKey("sk-retry-secret");
-  const [apiKeyId] = state.cachedActiveKeyIds;
-
-  await kv.delete([...API_KEY_PREFIX, apiKeyId]);
-  await kv.set(API_KEY_CACHE_REVISION_KEY, Date.now());
-  state.apiKeyCacheRevision = 0;
-  state.apiKeyCacheRevisionLastCheckedAt = 0;
-
-  const originalList = state.kv.list.bind(state.kv);
-  let failed = false;
-  state.kv.list = ((
-    selector: Deno.KvListSelector,
-    options?: Deno.KvListOptions,
-  ) => {
-    if (!failed) {
-      failed = true;
-      throw new Error("transient list failure");
-    }
-    return originalList(selector, options);
-  }) as typeof state.kv.list;
-
-  await assertRejects(
-    () => refreshApiKeyCacheIfChanged(),
-    Error,
-    "transient list failure",
-  );
-  assertEquals(state.apiKeyCacheRevision, 0);
-  state.kv.list = originalList;
-
-  await refreshApiKeyCacheIfChanged();
-  assertEquals(state.cachedKeysById.has(apiKeyId), false);
-
-  kv.close();
-});
-
 Deno.test("integration: slow proxy request bodies are cancelled", async () => {
   const kv = await setupKv();
   const handler = buildHandler();

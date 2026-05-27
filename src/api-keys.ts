@@ -83,13 +83,34 @@ async function refreshApiKeyCacheRevision(): Promise<void> {
   ) {
     return;
   }
-  const revision = await getApiKeyCacheRevision();
-  if (revision === state.apiKeyCacheRevision) {
-    state.apiKeyCacheRevisionLastCheckedAt = now;
-    return;
+  // Bump the throttle clock first so a sustained KV outage cannot turn the
+  // throttle window into a per-request retry storm. With this in place the
+  // proxy keeps serving from its existing cache for up to
+  // PROXY_KEY_AUTH_REFRESH_INTERVAL_MS without hitting KV again, even if
+  // every refresh attempt fails. See issue #138.
+  state.apiKeyCacheRevisionLastCheckedAt = now;
+  // Track which phase failed so the warn log distinguishes a KV outage on
+  // the revision read from a failure inside the merge step (which can also
+  // surface key-record format / encryption errors via kvGetAllKeys —
+  // intentionally absorbed here so a single bad record cannot take down
+  // the whole proxy, but operators need to know which path tripped).
+  let phase: "revision_read" | "merge_keys" = "revision_read";
+  try {
+    const revision = await getApiKeyCacheRevision();
+    if (revision === state.apiKeyCacheRevision) return;
+    phase = "merge_keys";
+    await kvMergeAllApiKeysIntoCache();
+    recordApiKeyCacheRevision(revision);
+  } catch (error) {
+    // Swallow KV / hydration errors instead of failing the proxy request:
+    // the existing in-memory cache is still valid for the throttle window.
+    // Without this, a transient KV outage cascades to 500 responses on
+    // every proxy request that happens to fall outside the throttle
+    // window. The phase field lets operators tell a revision-key outage
+    // apart from a merge-time problem (e.g. KV.list error or a
+    // legitimately broken persisted key record).
+    logger.warn("api_key_cache_refresh_failed", { phase }, error);
   }
-  await kvMergeAllApiKeysIntoCache();
-  recordApiKeyCacheRevision(revision);
 }
 
 export function markKeyCooldownFrom429(id: string, response: Response): void {
