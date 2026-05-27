@@ -28,7 +28,7 @@ export class AppState {
   dirtyKeyIds = new Set<string>();
 
   flushInProgress = false;
-  kvFlushTimerId: number | null = null;
+  kvFlushTimerId: ReturnType<typeof setInterval> | null = null;
   kvFlushIntervalMsEffective = DEFAULT_KV_FLUSH_INTERVAL_MS;
   pendingTotalRequests = 0;
 

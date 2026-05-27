@@ -80,7 +80,7 @@ async function readBoundedBodyText(
 
   const chunks: Uint8Array[] = [];
   let total = 0;
-  let timerId: number | undefined;
+  let timerId: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<"timeout">((resolve) => {
     timerId = setTimeout(
       () => resolve("timeout"),

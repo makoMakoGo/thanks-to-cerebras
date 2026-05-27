@@ -148,8 +148,8 @@ export function boundProxyResponseBody(
   const reader = body.getReader();
   let totalBytes = 0;
   let finished = false;
-  let idleTimer: number | undefined;
-  let totalTimer: number | undefined;
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  let totalTimer: ReturnType<typeof setTimeout> | undefined;
   let releasePromise: Promise<void> | null = null;
 
   function scheduleIdle(
