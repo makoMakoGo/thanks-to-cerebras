@@ -213,9 +213,14 @@ export async function forwardChatCompletion(
     if (apiResponse.status >= 500) {
       recordUpstreamFailure();
       metrics.inc("upstream_responses_total", "5xx");
-    } else {
+    } else if (apiResponse.ok) {
       recordUpstreamSuccess();
     }
+    // 4xx responses (401/403/404/429/etc) are ignored by the circuit
+    // breaker: they aren't real upstream outages, and resetting the
+    // failure counter on every 4xx would let intermittent client errors
+    // (especially 429) mask underlying 5xx and keep the breaker from
+    // ever opening under realistic mixed traffic. See issue #137.
 
     if (apiResponse.status === 404) {
       const bodyRead = await readBoundedBodyText(apiResponse.body);
