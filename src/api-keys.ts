@@ -83,13 +83,24 @@ async function refreshApiKeyCacheRevision(): Promise<void> {
   ) {
     return;
   }
-  const revision = await getApiKeyCacheRevision();
-  if (revision === state.apiKeyCacheRevision) {
-    state.apiKeyCacheRevisionLastCheckedAt = now;
-    return;
+  // Bump the throttle clock first so a sustained KV outage cannot turn the
+  // throttle window into a per-request retry storm. With this in place the
+  // proxy keeps serving from its existing cache for up to
+  // PROXY_KEY_AUTH_REFRESH_INTERVAL_MS without hitting KV again, even if
+  // every refresh attempt fails. See issue #138.
+  state.apiKeyCacheRevisionLastCheckedAt = now;
+  try {
+    const revision = await getApiKeyCacheRevision();
+    if (revision === state.apiKeyCacheRevision) return;
+    await kvMergeAllApiKeysIntoCache();
+    recordApiKeyCacheRevision(revision);
+  } catch (error) {
+    // Swallow KV errors instead of failing the proxy request: the existing
+    // in-memory cache is still valid for the throttle window. Without this,
+    // a transient KV outage cascades to 500 responses on every proxy
+    // request that happens to fall outside the throttle window.
+    logger.warn("api_key_cache_refresh_failed", {}, error);
   }
-  await kvMergeAllApiKeysIntoCache();
-  recordApiKeyCacheRevision(revision);
 }
 
 export function markKeyCooldownFrom429(id: string, response: Response): void {
