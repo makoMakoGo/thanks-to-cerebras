@@ -22,6 +22,24 @@ function throwIncompatibleConfig(detail: string): never {
   );
 }
 
+function modelPoolUnchanged(
+  rawPool: readonly unknown[],
+  normalized: readonly string[],
+): boolean {
+  if (rawPool.length !== normalized.length) return false;
+  for (let i = 0; i < rawPool.length; i++) {
+    if (rawPool[i] !== normalized[i]) return false;
+  }
+  return true;
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" &&
+    Number.isFinite(value) &&
+    Number.isInteger(value) &&
+    value >= 0;
+}
+
 export function validateProxyConfig(rawValue: unknown): ProxyConfig {
   if (!rawValue || typeof rawValue !== "object") {
     throwIncompatibleConfig("config 不是对象");
@@ -37,30 +55,15 @@ export function validateProxyConfig(rawValue: unknown): ProxyConfig {
     throwIncompatibleConfig("缺少 modelPool 或类型错误");
   }
 
-  if (
-    typeof raw.currentModelIndex !== "number" ||
-    !Number.isFinite(raw.currentModelIndex) ||
-    !Number.isInteger(raw.currentModelIndex) ||
-    raw.currentModelIndex < 0
-  ) {
+  if (!isNonNegativeInteger(raw.currentModelIndex)) {
     throwIncompatibleConfig("缺少 currentModelIndex 或类型错误");
   }
 
-  if (
-    typeof raw.totalRequests !== "number" ||
-    !Number.isFinite(raw.totalRequests) ||
-    !Number.isInteger(raw.totalRequests) ||
-    raw.totalRequests < 0
-  ) {
+  if (!isNonNegativeInteger(raw.totalRequests)) {
     throwIncompatibleConfig("缺少 totalRequests 或类型错误");
   }
 
-  if (
-    typeof raw.kvFlushIntervalMs !== "number" ||
-    !Number.isFinite(raw.kvFlushIntervalMs) ||
-    !Number.isInteger(raw.kvFlushIntervalMs) ||
-    raw.kvFlushIntervalMs < 0
-  ) {
+  if (!isNonNegativeInteger(raw.kvFlushIntervalMs)) {
     throwIncompatibleConfig("缺少 kvFlushIntervalMs 或类型错误");
   }
 
@@ -71,8 +74,19 @@ export function validateProxyConfig(rawValue: unknown): ProxyConfig {
     throwIncompatibleConfig("proxyPublicAccess 类型错误");
   }
 
+  const normalizedPool = normalizeModelPool(raw.modelPool);
+  // If every field is already canonical, return the original reference so
+  // callers can detect "no migration needed" via reference equality and skip
+  // the unnecessary KV write on the hot path of every kvGetConfig() call.
+  if (
+    modelPoolUnchanged(raw.modelPool, normalizedPool) &&
+    typeof raw.proxyPublicAccess === "boolean"
+  ) {
+    return rawValue as ProxyConfig;
+  }
+
   return {
-    modelPool: normalizeModelPool(raw.modelPool),
+    modelPool: normalizedPool,
     currentModelIndex: raw.currentModelIndex,
     totalRequests: raw.totalRequests,
     kvFlushIntervalMs: raw.kvFlushIntervalMs,
@@ -83,35 +97,44 @@ export function validateProxyConfig(rawValue: unknown): ProxyConfig {
 export async function kvEnsureConfigEntry(): Promise<
   Deno.KvEntry<ProxyConfig>
 > {
-  let entry = await state.kv.get<ProxyConfig>(CONFIG_KEY);
+  for (let attempt = 0; attempt < KV_ATOMIC_MAX_RETRIES; attempt++) {
+    let entry = await state.kv.get<ProxyConfig>(CONFIG_KEY);
 
-  if (!entry.value) {
-    const defaultConfig: ProxyConfig = {
-      modelPool: [...DEFAULT_MODEL_POOL],
-      currentModelIndex: 0,
-      totalRequests: 0,
-      kvFlushIntervalMs: DEFAULT_KV_FLUSH_INTERVAL_MS,
-      proxyPublicAccess: false,
-    };
-    await state.kv.set(CONFIG_KEY, defaultConfig);
-    entry = await state.kv.get<ProxyConfig>(CONFIG_KEY);
-  }
+    if (!entry.value) {
+      const defaultConfig: ProxyConfig = {
+        modelPool: [...DEFAULT_MODEL_POOL],
+        currentModelIndex: 0,
+        totalRequests: 0,
+        kvFlushIntervalMs: DEFAULT_KV_FLUSH_INTERVAL_MS,
+        proxyPublicAccess: false,
+      };
+      await state.kv.set(CONFIG_KEY, defaultConfig);
+      entry = await state.kv.get<ProxyConfig>(CONFIG_KEY);
+    }
 
-  if (!entry.value) {
-    throw new Error("KV 配置初始化失败");
-  }
-  const config = validateProxyConfig(entry.value);
-  if (config !== entry.value) {
+    if (!entry.value) {
+      throw new Error("KV 配置初始化失败");
+    }
+    const config = validateProxyConfig(entry.value);
+    if (config === entry.value) {
+      return { ...entry, value: config } as Deno.KvEntry<ProxyConfig>;
+    }
+    // Migration write needed. CAS may lose the race against a concurrent
+    // request running the same migration; on conflict we re-read and retry
+    // instead of failing the caller. On success we still loop once more so
+    // we return an entry with the fresh versionstamp produced by the write
+    // (callers like kvUpdateConfig pass it back into .check()).
     const result = await state.kv.atomic()
       .check(entry)
       .set(CONFIG_KEY, config)
       .commit();
-    if (!result.ok) throw new Error("KV 配置迁移失败：写入冲突");
-    const migrated = await state.kv.get<ProxyConfig>(CONFIG_KEY);
-    if (!migrated.value) throw new Error("KV 配置迁移失败");
-    return { ...migrated, value: validateProxyConfig(migrated.value) };
+    if (!result.ok) {
+      const baseMs = Math.min(10 * 2 ** attempt, 500);
+      const jitter = Math.random() * baseMs;
+      await new Promise((r) => setTimeout(r, baseMs + jitter));
+    }
   }
-  return { ...entry, value: config } as Deno.KvEntry<ProxyConfig>;
+  throw new Error("KV 配置迁移失败：达到最大重试次数");
 }
 
 export async function kvGetConfig(): Promise<ProxyConfig> {
