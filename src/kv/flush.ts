@@ -16,6 +16,7 @@ import {
   resolveKvFlushIntervalMs,
 } from "./config.ts";
 import { kvGetAllKeys } from "./api-keys.ts";
+import { kvBackfillApiKeyValueIndex } from "./api-keys-index.ts";
 import { kvGetAllProxyKeys } from "./proxy-keys.ts";
 import { getApiKeyCacheRevision, getAuthCacheRevision } from "./revisions.ts";
 import { metrics } from "../metrics.ts";
@@ -189,4 +190,24 @@ export async function bootstrapCache(): Promise<void> {
   state.authCacheRevisionLastCheckedAt = Date.now();
   state.apiKeyCacheRevision = await getApiKeyCacheRevision();
   state.apiKeyCacheRevisionLastCheckedAt = Date.now();
+
+  // Issue #139: ensure the secondary value-digest index exists for every
+  // persisted api key. Idempotent — safe to run on every cold start. Run
+  // after the cache is populated so a subsequent kvAddKey can rely on
+  // the index for cross-instance duplicate detection.
+  try {
+    const { created, preExistingDuplicates } =
+      await kvBackfillApiKeyValueIndex();
+    if (created > 0 || preExistingDuplicates > 0) {
+      logger.info("api_key_value_index_backfill", {
+        created,
+        preExistingDuplicates,
+      });
+    }
+  } catch (error) {
+    // Backfill failure must not block startup — duplicate detection
+    // simply degrades to the in-memory cache check until the next
+    // bootstrap (or a successful kvAddKey path that creates the entry).
+    logger.warn("api_key_value_index_backfill_failed", {}, error);
+  }
 }

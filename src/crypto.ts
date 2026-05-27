@@ -29,6 +29,20 @@ async function sha256Bytes(value: string): Promise<Uint8Array> {
   );
 }
 
+/**
+ * Returns a hex-encoded SHA-256 digest of the input. Used as a stable,
+ * non-secret identifier for "have I seen this exact value before?" checks
+ * (e.g. the API key value index) without storing the plaintext alongside.
+ */
+export async function sha256Hex(value: string): Promise<string> {
+  const bytes = await sha256Bytes(value);
+  let hex = "";
+  for (let i = 0; i < bytes.length; i++) {
+    hex += bytes[i].toString(16).padStart(2, "0");
+  }
+  return hex;
+}
+
 export async function compareSecret(a: string, b: string): Promise<boolean> {
   const [aDigest, bDigest] = await Promise.all([
     sha256Bytes(a),
