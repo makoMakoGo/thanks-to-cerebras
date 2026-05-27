@@ -381,3 +381,51 @@ Deno.test(
     }
   },
 );
+
+Deno.test(
+  "kvAddKey: concurrent same-value race loser returns 密钥已存在 (not save-failed)",
+  async () => {
+    // Race scenario: kvAddKey reads a null indexEntry for a fresh
+    // plaintext, then another instance commits the same plaintext before
+    // this caller's atomic lands. The atomic CAS on indexEntry fails. Pre-
+    // fix the loser returned "密钥保存失败，请重试" → HTTP 400 generic
+    // conflict. Post-fix it re-reads indexKey; if non-null it returns
+    // "密钥已存在" → HTTP 409, matching the actual situation.
+    const kv = await setupKv();
+    try {
+      const plaintext = "sk-race-add";
+      const digest = await sha256Hex(plaintext);
+      const indexKey = [...API_KEY_VALUE_INDEX_PREFIX, digest];
+
+      // Inject the race: monkey-patch state.kv.atomic so that just before
+      // kvAddKey commits, a competing write lands on indexKey. The atomic
+      // CAS on the (formerly null) indexEntry must now fail, and the post-
+      // CAS re-read must trigger the duplicate-error branch.
+      const originalAtomic = state.kv.atomic.bind(state.kv);
+      let raced = false;
+      state.kv.atomic = (() => {
+        const tx = originalAtomic();
+        const originalCommit = tx.commit.bind(tx);
+        tx.commit = async () => {
+          if (!raced) {
+            raced = true;
+            await state.kv.set(indexKey, "race-winner-id");
+          }
+          return originalCommit();
+        };
+        return tx;
+      }) as typeof state.kv.atomic;
+
+      try {
+        const result = await kvAddKey(plaintext);
+        assertEquals(result.success, false);
+        assertEquals(result.error, "密钥已存在");
+      } finally {
+        state.kv.atomic = originalAtomic;
+      }
+    } finally {
+      setLogSinkForTests(null);
+      kv.close();
+    }
+  },
+);

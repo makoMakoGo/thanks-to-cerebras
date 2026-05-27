@@ -184,6 +184,14 @@ export async function kvAddKey(
     .set(API_KEY_CACHE_REVISION_KEY, revision)
     .commit();
   if (!result.ok) {
+    // CAS lost — by far the most likely cause is another instance just
+    // wrote the same plaintext via its own atomic. Re-read the index so
+    // the caller (and ultimately the HTTP handler) gets the duplicate
+    // error → 409 instead of the generic save-conflict error → 400.
+    const postCheck = await state.kv.get<string>(indexKey);
+    if (postCheck.value !== null) {
+      return { success: false, error: "密钥已存在" };
+    }
     return { success: false, error: "密钥保存失败，请重试" };
   }
   state.cachedKeysById.set(id, newKey);
@@ -197,10 +205,16 @@ export async function kvDeleteKey(
   id: string,
 ): Promise<{ success: boolean; error?: string }> {
   const key = [...API_KEY_PREFIX, id];
-  const result = await state.kv.get<PersistedApiKey>(key);
+  const result = await state.kv.get(key);
   if (!result.value) {
     return { success: false, error: "密钥不存在" };
   }
+  // Validate at the runtime boundary — the generic on state.kv.get is a
+  // TypeScript-level promise, not a guarantee. A malformed / corrupted
+  // record (migration bug, manual KV write, cross-version payload)
+  // surfaces as the expected "格式不兼容" error here instead of a less
+  // diagnosable TypeError on the next property access.
+  const persisted = assertCurrentApiKey(result.value);
 
   // Resolve the value digest so the secondary index entry can be removed
   // atomically alongside the main record. Prefer the in-memory plaintext
@@ -208,7 +222,7 @@ export async function kvDeleteKey(
   // persisted record if the cache doesn't have it.
   const cached = state.cachedKeysById.get(id);
   const plaintext = cached?.key ??
-    await decryptApiKey(result.value.encryptedKey);
+    await decryptApiKey(persisted.encryptedKey);
   const valueDigest = await sha256Hex(plaintext);
   const indexKey = valueIndexKey(valueDigest);
   // Fetch indexEntry and revisionEntry in parallel — mirrors the
