@@ -39,7 +39,7 @@ async function kvGetAllKeysWithSkipped(): Promise<
     } catch (error) {
       const rawId = entry.key[API_KEY_PREFIX.length];
       const keyId = typeof rawId === "string" ? rawId : undefined;
-      if (keyId) skippedKeyIds.add(keyId);
+      if (keyId) skippedKeyIds.add(keyId); // string ids only — must match cachedKeysById to be skip-protected
       const fields = { keyId, kvKey: String(entry.key) };
       logger.warn("api_key_hydrate_failed", fields, error);
       metrics.inc("api_key_hydrate_failed_total", "skipped");

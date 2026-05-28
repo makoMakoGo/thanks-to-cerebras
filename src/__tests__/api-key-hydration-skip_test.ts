@@ -122,6 +122,11 @@ Deno.test(
       );
       assertEquals(warns.length, 1);
       assertEquals(warns[0].record.keyId, "bad-invalid-cipher");
+
+      assertEquals(
+        metrics.snapshot().api_key_hydrate_failed_total?.skipped,
+        1,
+      );
     } finally {
       logs.restore();
       kv.close();
@@ -162,6 +167,11 @@ Deno.test(
       );
       assertEquals(warns.length, 1);
       assertEquals(warns[0].record.keyId, "bad-decrypt");
+
+      assertEquals(
+        metrics.snapshot().api_key_hydrate_failed_total?.skipped,
+        1,
+      );
     } finally {
       logs.restore();
       kv.close();
