@@ -38,47 +38,6 @@ that model from the active pool and retries with the next model. If all
 configured models are removed or unavailable, proxy requests return a model
 availability error.
 
-## Pre-existing duplicate API key cleanup
-
-Deployments that pre-date the value-digest index (issue #139) may contain
-duplicate Cerebras API key records — two or more KV entries with different ids
-but the same plaintext value. On bootstrap, `kvBackfillApiKeyValueIndex` detects
-these and emits a structured warning per duplicate:
-
-```
-level: warn
-event: api_key_value_index_pre_existing_duplicate
-keptId: <canonical id protected by the index>
-duplicateId: <unprotected legacy duplicate>
-```
-
-### Cleanup procedure
-
-1. Delete the `duplicateId` shown in the warning log.
-2. Repeat for each `api_key_value_index_pre_existing_duplicate` warning.
-3. Confirm no duplicate warnings appear on the next bootstrap / deploy.
-4. If both records must be removed, delete all `duplicateId`s first, then
-   `keptId`.
-
-### Why order matters
-
-`keptId` is the canonical record — the value-digest index points at it. If you
-delete `keptId` first:
-
-- `kvDeleteKey` removes the index entry (it only deletes the index when it
-  points at the id being deleted).
-- The `duplicateId` record still exists in KV but now has no index protection.
-- Until the next `kvBackfillApiKeyValueIndex` run (next bootstrap), a same-value
-  `kvAddKey` request can succeed and create yet another duplicate.
-
-This is an accepted migration-period window (issue #146, direction B). The fix
-is operational: always delete the unprotected duplicate first.
-
-### Do not export plaintext keys
-
-Use only the `keptId` / `duplicateId` from the log for cleanup. The admin API
-intentionally returns `403` on plaintext export endpoints.
-
 ## Recovery
 
 - If a key is marked `invalid`, add a replacement key and delete the invalid
