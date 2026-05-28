@@ -13,6 +13,8 @@ import { generateId } from "../utils.ts";
 import { sha256Hex } from "../crypto.ts";
 import { rebuildActiveKeyIds } from "../api-keys.ts";
 import { decryptApiKey, encryptApiKey } from "../secrets.ts";
+import { logger } from "../logger.ts";
+import { metrics } from "../metrics.ts";
 import { state } from "../state.ts";
 import {
   getNextRevisionValue,
@@ -23,26 +25,36 @@ import { waitForKvAtomicRetry } from "./atomic-retry.ts";
 
 async function hydrateApiKey(value: unknown): Promise<ApiKey> {
   const persisted = assertCurrentApiKey(value);
-  return {
-    ...persisted,
-    key: await decryptApiKey(persisted.encryptedKey),
-  };
+  return { ...persisted, key: await decryptApiKey(persisted.encryptedKey) };
 }
-
-export async function kvGetAllKeys(): Promise<ApiKey[]> {
+async function kvGetAllKeysWithSkipped(): Promise<
+  { keys: ApiKey[]; skippedKeyIds: Set<string> }
+> {
   const keys: ApiKey[] = [];
+  const skippedKeyIds = new Set<string>();
   const iter = state.kv.list({ prefix: API_KEY_PREFIX });
   for await (const entry of iter) {
-    keys.push(await hydrateApiKey(entry.value));
+    try {
+      keys.push(await hydrateApiKey(entry.value));
+    } catch (error) {
+      const rawId = entry.key[API_KEY_PREFIX.length];
+      const keyId = typeof rawId === "string" ? rawId : undefined;
+      if (keyId) skippedKeyIds.add(keyId);
+      const fields = { keyId, kvKey: String(entry.key) };
+      logger.warn("api_key_hydrate_failed", fields, error);
+      metrics.inc("api_key_hydrate_failed_total", "skipped");
+    }
   }
-  return keys;
+  return { keys, skippedKeyIds };
 }
-
+export async function kvGetAllKeys(): Promise<ApiKey[]> {
+  return (await kvGetAllKeysWithSkipped()).keys;
+}
 export async function kvMergeAllApiKeysIntoCache(): Promise<void> {
-  const keys = await kvGetAllKeys();
+  const { keys, skippedKeyIds } = await kvGetAllKeysWithSkipped();
   const loadedIds = new Set(keys.map((key) => key.id));
   for (const id of state.cachedKeysById.keys()) {
-    if (!loadedIds.has(id)) {
+    if (!loadedIds.has(id) && !skippedKeyIds.has(id)) {
       state.cachedKeysById.delete(id);
       state.keyCooldownUntil.delete(id);
       state.dirtyKeyIds.delete(id);
