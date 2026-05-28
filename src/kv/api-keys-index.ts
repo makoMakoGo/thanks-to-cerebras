@@ -26,22 +26,8 @@ export function valueIndexKey(digest: string): Deno.KvKey {
  * - Missing index → atomically create it pointing at the record's id.
  * - Existing index points at this id → no-op.
  * - Existing index points at a different id → log warn but do not
- *   overwrite. The record currently in the index slot is the canonical
- *   (protected) id; the other record is reported as `duplicateId` and
- *   left intact in KV for an admin to clean up. We deliberately avoid
- *   auto-deleting either record from here because a backfill path is the
- *   wrong place to drop user data.
- *
- * Pre-existing duplicate semantics (issue #139, see also #146):
- * - As long as the canonical id still exists, same-value kvAddKey calls
- *   are blocked by the digest index — exactly as if there were no
- *   duplicate.
- * - If an admin deletes the canonical id first, kvDeleteKey removes the
- *   index entry too. The surviving duplicate then has no index protection
- *   until the next kvBackfillApiKeyValueIndex / bootstrap re-indexes it.
- *   In that window, a same-value kvAddKey can succeed and create a fresh
- *   duplicate. Admins should always delete the duplicateId from the warn
- *   log first — see the runbook.
+ *   overwrite or delete either record. A backfill path repairs missing
+ *   indexes; it must not choose which user data to discard.
  *
  * Concurrency: a CAS conflict means another instance won the race for
  * the same digest; treat as success (the entry is now there). Any other

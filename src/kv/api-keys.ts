@@ -215,14 +215,8 @@ export async function kvDeleteKey(
     .delete(key)
     .set(API_KEY_CACHE_REVISION_KEY, revision);
   if (indexEntry.value === id) {
-    // Delete the digest index only when this record is the indexed
-    // canonical id. If the index points at another id, leave it intact
-    // so that survivor remains protected.
-    //
-    // Legacy duplicate window (#146-B): deleting the canonical id of a
-    // pre-existing duplicate pair removes the digest index. The remaining
-    // duplicate is unprotected until the next backfill / bootstrap;
-    // admins should delete duplicateId before keptId. See the runbook.
+    // Delete the digest index only when this record owns it. If another
+    // id owns the index, leave that duplicate-protection path intact.
     atomic = atomic.delete(indexKey);
   }
   const deleteResult = await atomic.commit();

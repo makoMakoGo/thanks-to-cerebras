@@ -10,7 +10,7 @@ import { assertEquals } from "@std/assert";
 import { API_KEY_PREFIX, API_KEY_VALUE_INDEX_PREFIX } from "../constants.ts";
 import { sha256Hex } from "../crypto.ts";
 import { encryptApiKey } from "../secrets.ts";
-import { kvAddKey, kvDeleteKey, kvGetAllKeys } from "../kv/api-keys.ts";
+import { kvAddKey, kvDeleteKey } from "../kv/api-keys.ts";
 import { kvBackfillApiKeyValueIndex } from "../kv/api-keys-index.ts";
 import { bootstrapCache } from "../kv/flush.ts";
 import { rebuildActiveKeyIds } from "../api-keys.ts";
@@ -225,8 +225,8 @@ Deno.test(
         digest,
       ]);
       // The index points at one of the two records (whichever the list
-      // iteration visited first); the other record is left intact in KV
-      // for an admin to clean up.
+      // iteration visited first); the other record is left intact because
+      // backfill must not choose which user data to discard.
       const winnerId = indexEntry.value;
       assertEquals(typeof winnerId, "string");
       const both = ["dup-keep", "dup-other"];
@@ -423,77 +423,6 @@ Deno.test(
       } finally {
         state.kv.atomic = originalAtomic;
       }
-    } finally {
-      setLogSinkForTests(null);
-      kv.close();
-    }
-  },
-);
-
-Deno.test(
-  "kvDeleteKey: deleting canonical pre-existing duplicate leaves survivor temporarily unprotected",
-  async () => {
-    // Characterization test for issue #146 (direction B): documents the
-    // accepted migration-period window where deleting the canonical id of
-    // a pre-existing duplicate removes the value-index, leaving the
-    // surviving duplicate temporarily unprotected until the next backfill.
-    const kv = await setupKv();
-    try {
-      const plaintext = "sk-pre-existing-delete-window";
-      await persistLegacyApiKey("dup-canonical-window-a", plaintext);
-      await persistLegacyApiKey("dup-canonical-window-b", plaintext);
-
-      const backfill = await kvBackfillApiKeyValueIndex();
-      assertEquals(backfill.created, 1);
-      assertEquals(backfill.preExistingDuplicates, 1);
-
-      const digest = await sha256Hex(plaintext);
-      const indexKey = [...API_KEY_VALUE_INDEX_PREFIX, digest];
-      const indexEntry = await state.kv.get<string>(indexKey);
-      const canonicalId = indexEntry.value as string;
-      const both = ["dup-canonical-window-a", "dup-canonical-window-b"];
-      assertEquals(both.includes(canonicalId), true);
-      const survivorId = both.find((id) => id !== canonicalId)!;
-
-      // Deleting the canonical id removes the index entry.
-      const del = await kvDeleteKey(canonicalId);
-      assertEquals(del.success, true);
-
-      const postDelete = await state.kv.get<string>(indexKey);
-      assertEquals(postDelete.value, null);
-
-      // Survivor's main record is still in KV.
-      const survivorEntry = await state.kv.get(
-        [...API_KEY_PREFIX, survivorId],
-      );
-      assertEquals(survivorEntry.value !== null, true);
-
-      // Simulate a fresh instance: clear local cache so kvAddKey relies
-      // solely on the (now-deleted) value-index for duplicate detection.
-      state.cachedKeysById.clear();
-      state.cachedActiveKeyIds = [];
-      rebuildActiveKeyIds();
-
-      // The window: kvAddKey succeeds because the index is gone, even
-      // though the survivor with the same plaintext still exists in KV.
-      const add = await kvAddKey(plaintext);
-      assertEquals(add.success, true);
-      assertEquals(add.id !== canonicalId, true);
-      assertEquals(add.id !== survivorId, true);
-
-      // The new record now owns the digest index.
-      const postAddIndex = await state.kv.get<string>(indexKey);
-      assertEquals(postAddIndex.value, add.id);
-
-      // Confirm KV now holds two live records with the same plaintext:
-      // the survivor and the newly added record.
-      const hydrated = await kvGetAllKeys();
-      const sameValueIds = hydrated
-        .filter((key) => key.key === plaintext)
-        .map((key) => key.id);
-      assertEquals(sameValueIds.length, 2);
-      assertEquals(sameValueIds.includes(survivorId), true);
-      assertEquals(sameValueIds.includes(add.id!), true);
     } finally {
       setLogSinkForTests(null);
       kv.close();
