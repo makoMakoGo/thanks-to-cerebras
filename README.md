@@ -12,6 +12,34 @@
   <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
 </p>
 
+## Get Started
+
+1. **获取 Cerebras Key**：访问 [Cerebras 官网](https://www.cerebras.ai/)
+   注册获取
+
+2. **部署到 Deno Deploy**：
+   1. 点击本页右上角 **Fork** 按钮，fork 到你的 GitHub 账号
+   2. 打开 [Deno Deploy 控制台](https://console.deno.com/)，创建新项目
+   3. 选择你 fork 的仓库，入口文件选 `main.ts`，部署
+   4. **关联 KV 数据库**（必须）：详见
+      [部署指南](docs/GUIDE.md#2-创建并关联-kv-数据库必须)
+
+3. **首次配置**：在部署环境设置 `SETUP_TOKEN` 和
+   `KEY_ENCRYPTION_SECRET`，访问部署地址，输入初始化令牌后设置管理密码，再添加
+   API 密钥
+
+4. **配置沉浸式翻译**：
+   - 上游地址：`https://<项目名>.deno.dev/v1/chat/completions`
+   - API Key：代理密钥（需先在管理面板创建；只有显式公开模式可填任意值）
+   - 模型：任意
+
+<div align="center">
+  <img src="image/配置说明2.png" alt="沉浸式翻译配置" width="70%">
+</div>
+
+📖 其他可选部署方式：[部署指南](docs/GUIDE.md) |
+[Docker 部署](docs/DEPLOYMENT_DOCKER.md) | [VPS 部署](docs/DEPLOYMENT_VPS.md)
+
 ## Features
 
 <div align="center">
@@ -19,7 +47,7 @@
   <img src="image/UI.png" alt="UI" width="70%">
 </div>
 
-本项目基于此专为沉浸式翻译设计，实现 Cerebras API 代理转发，支持：
+本项目专为沉浸式翻译设计，实现 Cerebras API 代理转发，支持：
 
 - OpenAI 兼容入口
   - 代理对外暴露 `/v1/chat/completions` 和 `/v1/models`
@@ -67,34 +95,6 @@
 
 本项目以 MIT License 开源，详见 `LICENSE`。
 
-## Get Started
-
-1. **获取 Cerebras Key**：访问 [Cerebras 官网](https://www.cerebras.ai/)
-   注册获取
-
-2. **部署到 Deno Deploy**：
-   1. 点击本页右上角 **Fork** 按钮，fork 到你的 GitHub 账号
-   2. 打开 [Deno Deploy 控制台](https://console.deno.com/)，创建新项目
-   3. 选择你 fork 的仓库，入口文件选 `main.ts`，部署
-   4. **关联 KV 数据库**（必须）：详见
-      [部署指南](docs/GUIDE.md#2-创建并关联-kv-数据库必须)
-
-3. **首次配置**：在部署环境设置 `SETUP_TOKEN` 和
-   `KEY_ENCRYPTION_SECRET`，访问部署地址，输入初始化令牌后设置管理密码，再添加
-   API 密钥
-
-4. **配置沉浸式翻译**：
-   - 上游地址：`https://<项目名>.deno.dev/v1/chat/completions`
-   - API Key：代理密钥（需先在管理面板创建；只有显式公开模式可填任意值）
-   - 模型：任意
-
-<div align="center">
-  <img src="image/配置说明2.png" alt="沉浸式翻译配置" width="70%">
-</div>
-
-📖 其他可选部署方式：[部署指南](docs/GUIDE.md) |
-[Docker 部署](docs/DEPLOYMENT_DOCKER.md) | [VPS 部署](docs/DEPLOYMENT_VPS.md)
-
 ## Documentation
 
 | 文档                                     | 说明             |
@@ -136,6 +136,12 @@ sequenceDiagram
 ## Development
 
 ```bash
+deno task dev
+```
+
+等价于：
+
+```bash
 deno run --allow-net --allow-env --allow-read --allow-write main.ts
 ```
 
@@ -147,8 +153,9 @@ deno run --allow-net --allow-env --allow-read --allow-write main.ts
 ## Acknowledgments
 
 感谢 [Cerebras](https://www.cerebras.ai/) 提供免费AI推理服务。Cerebras
-专注于高性能AI推理，免费用户每天可获得 1,000,000 tokens 调用额度，支持
-Llama、Qwen 等开源模型。
+专注于高性能AI推理，免费用户每天可获得 1,000,000 tokens 调用额度（每分钟限 30K
+tokens / 5 请求），详见
+[Rate Limits](https://inference-docs.cerebras.ai/support/rate-limits)。
 
 <div align="center">
   <p>可用模型及其限制示意</p>
