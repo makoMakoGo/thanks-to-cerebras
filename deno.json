@@ -40,6 +40,6 @@
     "docstring:coverage": "deno run --allow-read scripts/docstring-coverage.mjs --threshold 80"
   },
   "imports": {
-    "@std/assert": "jsr:@std/assert@^1.0.18"
+    "@std/assert": "jsr:@std/assert@^1.0.19"
   }
 }
